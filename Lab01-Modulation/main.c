@@ -59,7 +59,7 @@ int main(void)
     initUart0();
     setUart0BaudRate(115200, 40e6); // 115200 bps
     initSpi1(0x0000000E);           // SCK, MOSI, CS as output
-    setSpi1BaudRate(20e6, 40e6);    // 20 MHz
+    setSpi1BaudRate(1e6, 40e6);    // 1 MHz
     setSpi1Mode(0,0);               // CPOL = 0, CPHA = 0
                                     // ^probably not necessary, should be mode 0 by default
 
