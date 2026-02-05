@@ -19,7 +19,7 @@ enum MODE
 {
     OFF,
     DC,
-    SIN,
+    SINE,
     TONE,
     RAW
 };
@@ -37,31 +37,42 @@ int main(void)
     //shell
     while(1)
     {
-        putcUart0('>');
+        // command prompt
+        putsUart0("\r\e[1;32m> \e[0m");
 
         getsUart0(&data);
 
         parseFields(&data);
 
-        putsUart0("\r");
+        //Command to clear screen
+        if(isCommand(&data, "clear", 0))
+        {
+            putsUart0("\033[H\033[J");
+        }
 
-        if(isCommand(&data, "raw", 2))
+        // Command to send raw value to DAC
+        else if(isCommand(&data, "raw", 2))
         {
             char* iq = getFieldString(&data, 1);
-            int32_t R = getFieldInteger(&data, 2);
+            uint32_t R = getFieldInteger(&data, 2);
             buff = toAsciiDecimal(buff, R);
-            putcUart0('\n');
             putsUart0("RAW ");
             putsUart0(iq);
             putsUart0(buff);
+            putcUart0('\n');
         }
+
+        // Command to send DC voltage to DAC
         else if(isCommand(&data, "dc", 2))
         {
             char* iq = getFieldString(&data, 1);
-            int32_t V = getFieldInteger(&data, 2);
+            uint32_t V = getFieldInteger(&data, 2);
         }
         else
-            putsUart0("INVALID");
-        putsUart0("\r\n\n");
+        {
+            putsUart0("\r\e[0;91mInvalid command/args: ");
+            putsUart0(data.buffer);
+            putsUart0("\e[0m\n");
+        }
     }
 }
