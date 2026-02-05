@@ -64,13 +64,13 @@ void initSpi1(uint32_t pinMask)
         setPinAuxFunction(SSI1RX, GPIO_PCTL_PD2_SSI1RX);
     }
 
-    // Configure the SSI1 as a SPI master, mode 0, 12-bit operation
+    // Configure the SSI1 as a SPI master, mode 0, 16-bit operation
     SSI1_CR1_R &= ~SSI_CR1_SSE;                        // turn off SSI1 to allow re-configuration
     SSI1_CR1_R = 0;                                    // select master mode
     SSI1_CC_R = 0;                                     // select system clock as the clock source
 
     // Jacob changed this line
-    SSI1_CR0_R = SSI_CR0_FRF_MOTO | SSI_CR0_DSS_12;    // set SR=0, 12-bit, mode 0 (SPO=0, SPH=0)
+    SSI1_CR0_R = SSI_CR0_FRF_MOTO | SSI_CR0_DSS_16;    // set SR=0, 16-bit, mode 0 (SPO=0, SPH=0)
     // SSI1_CR0_R = SSI_CR0_FRF_MOTO | SSI_CR0_DSS_8;     // set SR=0, 8-bit
 }
 

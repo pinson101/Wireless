@@ -39,10 +39,10 @@ enum MODE
     TONE
 };
 
-static uint16_t sin_lut[LUT_SIZE];
-static uint16_t cos_lut[LUT_SIZE];
-
-// Function to initialize sine and cosine lookup tables  
+//static uint16_t sin_lut[LUT_SIZE];
+//static uint16_t cos_lut[LUT_SIZE];
+//
+//// Function to initialize sine and cosine lookup tables
 //void initLUTs(void)
 //{
 //    for (uint32_t i = 0; i < LUT_SIZE; i++)
@@ -94,6 +94,9 @@ int main(void)
                 mode_i = RAW;
                 putsUart0("\e[0;36mI RAW mode set\r\n");
                 // Send R to I channel DAC via SPI1
+                // This should go in the ISR, but doing it here for now to test SPI
+                // DAC expects 16-bit data with control bits in upper 4 bits
+                writeSpi1Data(0x1 << 12 | (R & 0xFFF));
             }
             else if(str_compare(iq, "q") == 0 || str_compare(iq, "Q") == 0)
             {
@@ -101,6 +104,9 @@ int main(void)
                 mode_q = RAW; 
                 putsUart0("\e[0;36mQ RAW mode set\r\n");
                 // Send R to Q channel DAC via SPI1
+                // This should go in the ISR, but doing it here for now to test SPI
+                // DAC expects 16-bit data with control bits in upper 4 bits
+                writeSpi1Data(0x9 << 12 | (R & 0xFFF));
             }
             else
             {
