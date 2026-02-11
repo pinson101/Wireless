@@ -59,13 +59,35 @@ int main(void)
         putsUart0("\r\e[1;32m> \e[0m");
 
         getsUart0(&data);
-
         parseFields(&data);
 
         // Command to clear screen
         if(isCommand(&data, "clear", 0))
         {
             putsUart0("\033[H\033[J");
+        }
+
+        // Command to turn off I or Q channel
+        else if (isCommand(&data, "off", 1))
+        {
+            char* iq = getFieldString(&data, 1);
+
+            if (str_compare(iq, "i") == 0 || str_compare(iq, "I") == 0)
+            {
+                mode_i = OFF;
+                putsUart0("\e[0;36mI channel turned off\r\n");
+            }
+            else if (str_compare(iq, "q") == 0 || str_compare(iq, "Q") == 0)
+            {
+                mode_q = OFF;
+                putsUart0("\e[0;36mQ channel turned off\r\n");
+            }
+            else
+            {
+                putsUart0("\r\e[0;91mInvalid I/Q specifier: ");
+                putsUart0(iq);
+                putsUart0("\e[0m\n");
+            }
         }
 
         // Command to send raw value to DAC
@@ -184,6 +206,25 @@ int main(void)
             putsUart0("\e[0;36mTONE set\r\n");
         }
 
+        // Command to show help message
+        else if (isCommand(&data, "help", 0))
+        {
+            putsUart0("\e[0;36mAvailable commands:\r\n");
+            putsUart0("  \e[0;36mclear\r\n"
+                      "    \e[0m- Clear the terminal screen\r\n");
+            putsUart0("  \e[0;36moff [i/q] \r\n"
+                      "    \e[0m- Turn off I or Q channel\r\n");
+            putsUart0("  \e[0;36mraw [i/q] [R] \r\n"
+                      "    \e[0m- Set I or Q channel to raw value R (0 - 4095)\r\n");
+            putsUart0("  \e[0;36mdc [i/q] [V] \r\n"
+                      "    \e[0m- Set I or Q channel to DC voltage V (-0.5 - 0.5)\r\n");
+            putsUart0("  \e[0;36msine [i/q] [A] [f] [p] \r\n"
+                      "    \e[0m- Set I or Q channel to sine wave with amplitude A (0 - 0.5), frequency f (Hz), and optional phase p (degrees)\r\n");
+            putsUart0("  \e[0;36mtone [A] [f] \r\n"
+                      "    \e[0m- Set both channels to tone with amplitude A (0-4095) and frequency f (Hz)\r\n");
+            putsUart0("  \e[0;36mhelp \r\n"
+                      "    \e[0m- Show this help message\r\n");
+        }
 
         // Command not recognized
         else
