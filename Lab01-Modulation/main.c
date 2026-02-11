@@ -15,10 +15,7 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-#define LUT_SIZE   4096u                    // Size of lookup tables
-#define DAC_BITS   12u
-#define DAC_MAX    ((1u << DAC_BITS) - 1u)  // 4095
-#define DAC_MID    (DAC_MAX / 2u + 1u)      // 2048
+#define LDAC PORTE,1
 
 // Global Variables for I & Q
 // Unsure if all of these will be needed, but defining them all for now
@@ -39,32 +36,21 @@ enum MODE
     TONE
 };
 
-//static uint16_t sin_lut[LUT_SIZE];
-//static uint16_t cos_lut[LUT_SIZE];
-//
-//// Function to initialize sine and cosine lookup tables
-//void initLUTs(void)
-//{
-//    for (uint32_t i = 0; i < LUT_SIZE; i++)
-//    {
-//        sin_lut[i] = (uint16_t)( ( (sin(2.0 * M_PI * i / LUT_SIZE) + 1.0) / 2.0 ) * DAC_MAX );
-//        cos_lut[i] = (uint16_t)( ( (cos(2.0 * M_PI * i / LUT_SIZE) + 1.0) / 2.0 ) * DAC_MAX );
-//    }
-//}
-
 int main(void)
 {
     // Init
     initSystemClockTo40Mhz();
     initUart0();
     setUart0BaudRate(115200, 40e6); // 115200 bps
-    initSpi1(0x0000000E);           // SCK, MOSI, CS as output
+    initSpi1(0x0000000F);           // SCK, MOSI, MISO, CS as output
     setSpi1BaudRate(1e6, 40e6);     // 1 MHz
     setSpi1Mode(0,0);               // CPOL = 0, CPHA = 0
                                     // ^probably not necessary, should be mode 0 by default
+    enablePort(PORTE);
+    selectPinPushPullOutput(LDAC);
+    setPinValue(LDAC, 1);
 
     USER_DATA data;
-    // char* buff;
 
     // shell
     while(1)
@@ -96,7 +82,11 @@ int main(void)
                 // Send R to I channel DAC via SPI1
                 // This should go in the ISR, but doing it here for now to test SPI
                 // DAC expects 16-bit data with control bits in upper 4 bits
-                writeSpi1Data(0x1 << 12 | (R & 0xFFF));
+                writeSpi1Data(0x3 << 12 | (R & 0xFFF));
+                waitMicrosecond(30);
+                setPinValue(LDAC, 0);
+                waitMicrosecond(1);
+                setPinValue(LDAC, 1);
             }
             else if(str_compare(iq, "q") == 0 || str_compare(iq, "Q") == 0)
             {
@@ -106,7 +96,11 @@ int main(void)
                 // Send R to Q channel DAC via SPI1
                 // This should go in the ISR, but doing it here for now to test SPI
                 // DAC expects 16-bit data with control bits in upper 4 bits
-                writeSpi1Data(0x9 << 12 | (R & 0xFFF));
+                writeSpi1Data(0xB << 12 | (R & 0xFFF));
+                waitMicrosecond(30);
+                setPinValue(LDAC, 0);
+                waitMicrosecond(1);
+                setPinValue(LDAC, 1);
             }
             else
             {
