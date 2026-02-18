@@ -1,54 +1,57 @@
-#include <clock.h>
+//#include <clock.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include <math.h>
 
-#include "clock.h"
+#include "tm4c123gh6pm.h"
+#include "clock80.h"
 #include "gpio.h"
 #include "nvic.h"
 #include "spi1.h"
 #include "uart0.h"
 #include "wait.h"
 #include "CLI.h"
+#include "DAC.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
 
-#define LDAC PORTE,1
-
 // Global Variables for I & Q
 // Unsure if all of these will be needed, but defining them all for now
-static volatile uint32_t mode_i, mode_q;
-static volatile uint32_t raw_i, raw_q;
-static volatile uint32_t freq_i, freq_q;
-static volatile uint32_t phase_i, phase_q;
-static volatile uint32_t voltage_i, voltage_q;
-static volatile uint32_t phase_acc;
-static volatile uint32_t delta_phase;
+volatile MODE_t mode_i = OFF, mode_q = OFF;
+volatile uint16_t raw_i = 2048, raw_q = 2048;
+volatile uint32_t freq_i = 10000, freq_q = 10000;
+volatile uint32_t phase_i = 0, phase_q = 0;
+volatile float voltage_i = 0.0f, voltage_q = 0.0f;
+volatile uint32_t phase_acci = 0, phase_accq = 0;
+volatile uint32_t delta_phase = 1; // default step
 
-enum MODE
-{
-    OFF,
-    RAW,
-    DC,
-    SINE,
-    TONE
-};
+//-----------------------------------------------------------------------------
+// Subroutines
+//-----------------------------------------------------------------------------
 
 int main(void)
 {
     // Init
-    initSystemClockTo40Mhz();
+    void initSystemClockTo80Mhz();
     initUart0();
-    setUart0BaudRate(115200, 40e6); // 115200 bps
+    setUart0BaudRate(115200, 80e6); // 115200 bps
     initSpi1(0x0000000F);           // SCK, MOSI, MISO, CS as output
-    setSpi1BaudRate(1e6, 40e6);     // 1 MHz
+    setSpi1BaudRate(1e6, 80e6);     // 1 MHz
     setSpi1Mode(0,0);               // CPOL = 0, CPHA = 0
                                     // ^probably not necessary, should be mode 0 by default
     enablePort(PORTE);
     selectPinPushPullOutput(LDAC);
     setPinValue(LDAC, 1);
+    void initTimer1();              // Initialize Periodic Timer 1 to trigger ever 20us
+
+    //-----------------------------------------------------------------------------
+    // Manual Sine Generation
+    makeLUT(500); // arg: Volts in mV
+
+
+    //-----------------------------------------------------------------------------
 
     USER_DATA data;
 
@@ -113,7 +116,7 @@ int main(void)
             else if(str_compare(iq, "q") == 0 || str_compare(iq, "Q") == 0)
             {
                 raw_q = R;
-                mode_q = RAW; 
+                mode_q = RAW;
                 putsUart0("\e[0;36mQ RAW mode set\r\n");
                 // Send R to Q channel DAC via SPI1
                 // This should go in the ISR, but doing it here for now to test SPI
@@ -156,7 +159,7 @@ int main(void)
                 putsUart0(iq);
                 putsUart0("\e[0m\n");
             }
-            
+
         }
 
         // Command to set sine wave parameters
@@ -191,14 +194,14 @@ int main(void)
             }
         }
 
-        // Commmand to set tone parameters 
+        // Commmand to set tone parameters
         else if (isCommand(&data, "tone", 2))
         {
             uint32_t amplitude = getFieldInteger(&data, 1);
             uint32_t frequency = getFieldInteger(&data, 2);
 
             voltage_i = amplitude;
-            voltage_q = amplitude; 
+            voltage_q = amplitude;
             freq_i = frequency;
             freq_q = frequency;
             mode_i = TONE;
