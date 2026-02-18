@@ -66,7 +66,7 @@ uint16_t makeFrameQ(uint16_t code12)
 
 uint16_t voltsToRAW(float V, uint32_t gain, uint32_t offset)
 {
-    float R = 0ffset + (V * gain / 0.5);
+    float R = offset + (V * gain / 0.5);
     if (R > 4095) R = 4095;
     return R;
 }
