@@ -19,6 +19,8 @@
 #include "spi1.h"
 #include "gpio.h"
 #include "DAC.h"
+#include "uart0.h"
+#include "CLI.h"
 
 //-----------------------------------------------------------------------------
 // Global Variables
@@ -34,11 +36,6 @@ static const uint32_t offset_q = 2104;
 static const uint32_t gain_i   = 1991;  // Measured to be 1995, but gain + offset must be <= 4095. counts corresponding to +0.5V from offset (calibrate)
 static const uint32_t gain_q   = 1991;  // Measured to be 2002, but gain + offset must be <= 4095.
 
-// Pin bitbands
-#define GREEN_LED    (*((volatile uint32_t *)(0x42000000 + (0x400253FC-0x40000000)*32 + 3*4)))
-
-// PortF masks
-#define GREEN_LED_MASK 8
 
 //-----------------------------------------------------------------------------
 // Subroutines
@@ -50,8 +47,8 @@ void makeLUT(uint32_t amp)
     int i;
     for(i = 0; i < LUT_SIZE; i++)
     {
-        LUTi[i] = amp * sin((2 * M_PI * i) / 256) * gain_i + offset_i;
-        LUTq[i] = amp * cos((2 * M_PI * i) / 256) * gain_q + offset_q;
+        LUTi[i] = (amp/1000) * sin((2 * M_PI * i) / 256) * gain_i + offset_i;
+        LUTq[i] = (amp/1000) * cos((2 * M_PI * i) / 256) * gain_q + offset_q;
     }
 }
 
@@ -69,7 +66,7 @@ uint16_t makeFrameQ(uint16_t code12)
 
 uint16_t voltsToRAW(uint32_t V, uint32_t gain, uint32_t offset)
 {
-    uint16_t R = offset + ((V / 1000) * gain / 0.5); // volts given in mV
+    uint16_t R = offset + ((V / 1000) * gain); // volts given in mV
     if (R > 4095) R = 4095;
     return R;
 }
@@ -79,6 +76,7 @@ void setFreq(uint32_t freq)
     TIMER1_TAILR_R = 40e6 / freq * (2^32 - 1);
 }
 
+char *buffer;
 // the ISR writes each sample of the signal (depends on sampling frequency)
 void writeDACISR()
 {
@@ -99,10 +97,10 @@ void writeDACISR()
             codeI = voltsToRAW(voltage_i, gain_i, offset_i);
             break;
         case SINE:
-            codeI = LUTi[phase_acci];
+            codeI = LUTi[phase_acci >> 24];
             break;
         case TONE:
-            codeI = LUTi[phase_acci];
+            codeI = LUTi[phase_acci >> 24];
             break;
         default: break;
     }
@@ -125,42 +123,34 @@ void writeDACISR()
             break;
     }
 
-    // advance phase once per sample
+    // advance phase
     if (mode_i== TONE || mode_i == SINE)
     {
-        phase_acci += delta_phase;
+        phase_acci += delta_phasei;
         if (phase_acci > 256) phase_acci = 0;
     }
     if (mode_q == TONE || mode_q == SINE)
     {
-        phase_accq += delta_phase;
+        phase_accq += delta_phaseq;
         if (phase_accq > 256) phase_accq = 0;
     }
 
-//    // write to DAC
-//    setPinValue(LDAC, 1);
-//    if(mode_i != OFF) writeSpi1Data(makeFrameI(codeI));
-//    if(mode_q != OFF) writeSpi1Data(makeFrameQ(codeQ));
-//    setPinValue(LDAC, 0);
-
-    // Toggle GREEN LED
-    GREEN_LED ^= 1;
+    // write to DAC
+    putsUart0(toAsciiHex(buffer, codeI));
+    putsUart0("\n\r");
+    if(mode_i != OFF) writeSpi1Data(makeFrameI(codeI));
+    if(mode_q != OFF) writeSpi1Data(makeFrameQ(codeQ));
 
     // clear the timer interrupt
-    TIMER0_ICR_R = TIMER_ICR_TATOCINT;
-
+    TIMER1_ICR_R = TIMER_ICR_TATOCINT;
 }
 
 void initTimer1()
 {
     // 1) Enable clock
     SYSCTL_RCGCTIMER_R |= SYSCTL_RCGCTIMER_R1;
-    SYSCTL_RCGCGPIO_R |= SYSCTL_RCGCGPIO_R5;
+//    SYSCTL_RCGCGPIO_R |= SYSCTL_RCGCGPIO_R5;
     _delay_cycles(3);
-
-    // 2) Configure LED pin
-    GPIO_PORTF_DIR_R |= GREEN_LED_MASK;
-    GPIO_PORTF_DEN_R |= GREEN_LED_MASK;
 
     // 3) Disable Timer0A during configuration
     TIMER1_CTL_R &= ~TIMER_CTL_TAEN;
@@ -180,7 +170,7 @@ void initTimer1()
     TIMER1_IMR_R |= TIMER_IMR_TATOIM;
 
     // 8) Enable Timer0A
-    TIMER0_CTL_R |= TIMER_CTL_TAEN;
+    TIMER1_CTL_R |= TIMER_CTL_TAEN;
 
     // 9) Enable IRQ in NVIC turn-on interrupt 37 (TIMER1A) in NVIC
     NVIC_EN0_R = 1 << (INT_TIMER1A-16);

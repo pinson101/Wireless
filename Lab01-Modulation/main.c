@@ -25,7 +25,7 @@ volatile uint32_t freq_i = 10000, freq_q = 10000;
 volatile uint32_t phase_i = 0, phase_q = 0;
 volatile float voltage_i = 0.0f, voltage_q = 0.0f;
 volatile uint32_t phase_acci = 0, phase_accq = 0;
-volatile uint32_t delta_phase = 1; // default step
+volatile uint32_t delta_phasei = 1, delta_phaseq = 1; // default step
 
 //-----------------------------------------------------------------------------
 // Subroutines
@@ -34,24 +34,17 @@ volatile uint32_t delta_phase = 1; // default step
 int main(void)
 {
     // Init
-    void initSystemClockTo80Mhz();
+    initSystemClockTo80Mhz();
     initUart0();
     setUart0BaudRate(115200, 80e6); // 115200 bps
     initSpi1(0x0000000F);           // SCK, MOSI, MISO, CS as output
-    setSpi1BaudRate(1e6, 80e6);     // 1 MHz
+    setSpi1BaudRate(20e6, 80e6);     // 1 MHz
     setSpi1Mode(0,0);               // CPOL = 0, CPHA = 0
                                     // ^probably not necessary, should be mode 0 by default
     enablePort(PORTE);
     selectPinPushPullOutput(LDAC);
     setPinValue(LDAC, 1);
-    void initTimer1();              // Initialize Periodic Timer 1 to trigger ever 20us
-
-    //-----------------------------------------------------------------------------
-    // Manual Sine Generation
-    makeLUT(500); // arg: Volts in mV
-
-
-    //-----------------------------------------------------------------------------
+    initTimer1();              // Initialize Periodic Timer 1 to trigger at 50KHz
 
     USER_DATA data;
 
@@ -172,17 +165,15 @@ int main(void)
 
             if (str_compare(iq, "i") == 0 || str_compare(iq, "I") == 0)
             {
-                voltage_i = amplitude;
-                freq_i = frequency;
-                phase_i = phase;
+                delta_phasei = (frequency/50000) * (2^32 - 1);
+                makeLUT(amplitude);
                 mode_i = SINE;
                 putsUart0("\e[0;36mI SINE wave set\r\n");
             }
             else if (str_compare(iq, "q") == 0 || str_compare(iq, "Q") == 0)
             {
-                voltage_q = amplitude;
-                freq_q = frequency;
-                phase_q = phase;
+                delta_phasei = (frequency/50000) * (2^32 - 1);
+                makeLUT(amplitude);
                 mode_q = SINE;
                 putsUart0("\e[0;36mQ SINE wave set\r\n");
             }

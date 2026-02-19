@@ -38,7 +38,7 @@ extern volatile uint32_t freq_i, freq_q;      // Hz
 extern volatile uint32_t phase_i, phase_q;    // degrees
 extern volatile float voltage_i, voltage_q;   // volts (use float for convenience)
 extern volatile uint32_t phase_acci, phase_accq; // LUT indices 0..255
-extern volatile uint32_t delta_phase;         // step per sample (0..255)
+extern volatile uint32_t delta_phasei, delta_phaseq;         // step per sample (0..255)
 
 // LUT size (power of two simplifies wrapping)
 #define LUT_SIZE 256
