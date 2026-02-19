@@ -1,4 +1,3 @@
-//#include <clock.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include <math.h>
@@ -20,13 +19,13 @@
 // Global Variables for I & Q
 // Unsure if all of these will be needed, but defining them all for now
 volatile MODE_t mode_i = OFF, mode_q = OFF;
-volatile uint16_t raw_i = 2048, raw_q = 2048;
-volatile uint32_t freq_i = 10000, freq_q = 10000;
+volatile uint16_t raw_i = 0, raw_q = 0;
+volatile uint32_t freq_i = 0, freq_q = 0;
 volatile uint32_t phase_i = 0, phase_q = 0;
-volatile float voltage_i = 0.0f, voltage_q = 0.0f;
+volatile uint32_t amplitude_i = 0, amplitude_q = 0;
 volatile uint32_t phase_acci = 0, phase_accq = 0;
 volatile uint32_t delta_phasei = 1, delta_phaseq = 1; // default step
-
+volatile uint16_t codeI = 0, codeQ = 0;
 //-----------------------------------------------------------------------------
 // Subroutines
 //-----------------------------------------------------------------------------
@@ -100,11 +99,11 @@ int main(void)
                 // Send R to I channel DAC via SPI1
                 // This should go in the ISR, but doing it here for now to test SPI
                 // DAC expects 16-bit data with control bits in upper 4 bits
-                writeSpi1Data(0x3 << 12 | (R & 0xFFF));
-                waitMicrosecond(30);
-                setPinValue(LDAC, 0);
-                waitMicrosecond(1);
-                setPinValue(LDAC, 1);
+                //writeSpi1Data(0x3 << 12 | (R & 0xFFF));
+                //waitMicrosecond(30);
+                //setPinValue(LDAC, 0);
+                //waitMicrosecond(1);
+                //setPinValue(LDAC, 1);
             }
             else if(str_compare(iq, "q") == 0 || str_compare(iq, "Q") == 0)
             {
@@ -114,11 +113,11 @@ int main(void)
                 // Send R to Q channel DAC via SPI1
                 // This should go in the ISR, but doing it here for now to test SPI
                 // DAC expects 16-bit data with control bits in upper 4 bits
-                writeSpi1Data(0xB << 12 | (R & 0xFFF));
-                waitMicrosecond(30);
-                setPinValue(LDAC, 0);
-                waitMicrosecond(1);
-                setPinValue(LDAC, 1);
+                //writeSpi1Data(0xB << 12 | (R & 0xFFF));
+                //waitMicrosecond(30);
+                //setPinValue(LDAC, 0);
+                //waitMicrosecond(1);
+                //setPinValue(LDAC, 1);
             }
             else
             {
@@ -136,13 +135,13 @@ int main(void)
 
             if (str_compare(iq, "i") == 0 || str_compare(iq, "I") == 0)
             {
-                voltage_i = V;
+                amplitude_i = V;
                 mode_i = DC;
                 putsUart0("\e[0;36mI DC voltage set\r\n");
             }
             else if (str_compare(iq, "q") == 0 || str_compare(iq, "Q") == 0)
             {
-                voltage_q = V;
+                amplitude_q = V;
                 mode_q = DC;
                 putsUart0("\e[0;36mQ DC voltage set\r\n");
             }
@@ -159,21 +158,34 @@ int main(void)
         else if (isCommand(&data, "sine", 3) || isCommand(&data, "sine", 4))
         {
             char* iq = getFieldString(&data, 1);
+
             uint32_t amplitude = getFieldInteger(&data, 2);
             uint32_t frequency = getFieldInteger(&data, 3);
             uint32_t phase = (data.fieldCount == 5) ? getFieldInteger(&data, 4) : 0;
 
             if (str_compare(iq, "i") == 0 || str_compare(iq, "I") == 0)
             {
-                delta_phasei = (frequency/50000) * (2^32 - 1);
-                makeLUT(amplitude);
+                freq_i = frequency;
+                phase_i = phase;
+                amplitude_i = amplitude;
+                phase_i = phase;
+                // set 32-bit phase accumulator from degrees: phase/360 * 2^32
+                phase_acci = (uint32_t)(((uint64_t)phase_i * (1ULL<<32)) / 360ULL);
+                delta_phasei = (uint32_t)(((uint64_t)freq_i * (1ULL<<32)) / 50000ULL);
+                makeLUT(amplitude_i);
                 mode_i = SINE;
                 putsUart0("\e[0;36mI SINE wave set\r\n");
             }
             else if (str_compare(iq, "q") == 0 || str_compare(iq, "Q") == 0)
             {
-                delta_phasei = (frequency/50000) * (2^32 - 1);
-                makeLUT(amplitude);
+                freq_q = frequency;
+                phase_q = phase;
+                amplitude_q = amplitude;
+                phase_q = phase;
+                // set 32-bit phase accumulator from degrees: phase/360 * 2^32 
+                phase_accq = (uint32_t)(((uint64_t)phase_q * (1ULL<<32)) / 360ULL);
+                delta_phaseq = (uint32_t)(((uint64_t)freq_q * (1ULL<<32)) / 50000ULL);
+                makeLUT(amplitude_q);
                 mode_q = SINE;
                 putsUart0("\e[0;36mQ SINE wave set\r\n");
             }
@@ -191,8 +203,8 @@ int main(void)
             uint32_t amplitude = getFieldInteger(&data, 1);
             uint32_t frequency = getFieldInteger(&data, 2);
 
-            voltage_i = amplitude;
-            voltage_q = amplitude;
+            amplitude_i = amplitude;
+            amplitude_q = amplitude;
             freq_i = frequency;
             freq_q = frequency;
             mode_i = TONE;
@@ -211,11 +223,11 @@ int main(void)
             putsUart0("  \e[0;36mraw [i/q] [R] \r\n"
                       "    \e[0m- Set I or Q channel to raw value R (0 - 4095)\r\n");
             putsUart0("  \e[0;36mdc [i/q] [V] \r\n"
-                      "    \e[0m- Set I or Q channel to DC voltage V (-0.5 - 0.5)\r\n");
+                      "    \e[0m- Set I or Q channel to DC voltage V (mV)\r\n");
             putsUart0("  \e[0;36msine [i/q] [A] [f] [p] \r\n"
-                      "    \e[0m- Set I or Q channel to sine wave with amplitude A (0 - 0.5), frequency f (Hz), and optional phase p (degrees)\r\n");
+                      "    \e[0m- Set I or Q channel to sine wave with amplitude A (mVpp), frequency f (Hz), and optional phase p (degrees)\r\n");
             putsUart0("  \e[0;36mtone [A] [f] \r\n"
-                      "    \e[0m- Set both channels to tone with amplitude A (0-4095) and frequency f (Hz)\r\n");
+                      "    \e[0m- Set both channels to tone with amplitude A (mVpp) and frequency f (Hz)\r\n");
             putsUart0("  \e[0;36mhelp \r\n"
                       "    \e[0m- Show this help message\r\n");
         }

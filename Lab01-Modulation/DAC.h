@@ -19,7 +19,7 @@
 // Global Variables
 //-----------------------------------------------------------------------------
 
-// Define LDAC as used by your gpio helpers (same form as you used)
+// Define LDAC as used by your gpio helpers
 #define LDAC PORTE,1
 
 // Channel modes
@@ -36,11 +36,12 @@ extern volatile MODE_t mode_i, mode_q;
 extern volatile uint16_t raw_i, raw_q;        // 0..4095
 extern volatile uint32_t freq_i, freq_q;      // Hz
 extern volatile uint32_t phase_i, phase_q;    // degrees
-extern volatile float voltage_i, voltage_q;   // volts (use float for convenience)
+extern volatile uint32_t amplitude_i, amplitude_q;   // millivolts
 extern volatile uint32_t phase_acci, phase_accq; // LUT indices 0..255
 extern volatile uint32_t delta_phasei, delta_phaseq;         // step per sample (0..255)
+extern volatile uint16_t codeI, codeQ;      // final DAC codes to write (0..4095)
 
-// LUT size (power of two simplifies wrapping)
+
 #define LUT_SIZE 256
 
 //-----------------------------------------------------------------------------

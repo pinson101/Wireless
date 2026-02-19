@@ -36,19 +36,29 @@ static const uint32_t offset_q = 2104;
 static const uint32_t gain_i   = 1991;  // Measured to be 1995, but gain + offset must be <= 4095. counts corresponding to +0.5V from offset (calibrate)
 static const uint32_t gain_q   = 1991;  // Measured to be 2002, but gain + offset must be <= 4095.
 
-
 //-----------------------------------------------------------------------------
 // Subroutines
 //-----------------------------------------------------------------------------
 
 // make sin wave (cos is just sin with phase shift)
-void makeLUT(uint32_t amp)
+void makeLUT(uint32_t amplitude)
 {
-    int i;
-    for(i = 0; i < LUT_SIZE; i++)
+    double a = (double)amplitude / 1000.0; /* amplitude in V (from mV) */
+    int k;
+    for(k = 0; k < LUT_SIZE; k++)
     {
-        LUTi[i] = (amp/1000) * sin((2 * M_PI * i) / 256) * gain_i + offset_i;
-        LUTq[i] = (amp/1000) * cos((2 * M_PI * i) / 256) * gain_q + offset_q;
+        double angle = (2.0 * M_PI * (double)k) / (double)LUT_SIZE;
+        double s = sin(angle);
+        double c = cos(angle);
+
+        int32_t v_i = (int32_t)lround((double)offset_i + a * s * (double)gain_i);
+        int32_t v_q = (int32_t)lround((double)offset_q + a * c * (double)gain_q);
+
+        if (v_i < 0) v_i = 0; else if (v_i > 4095) v_i = 4095;
+        if (v_q < 0) v_q = 0; else if (v_q > 4095) v_q = 4095;
+
+        LUTi[k] = (uint16_t)v_i;
+        LUTq[k] = (uint16_t)v_q;
     }
 }
 
@@ -71,20 +81,16 @@ uint16_t voltsToRAW(uint32_t V, uint32_t gain, uint32_t offset)
     return R;
 }
 
-void setFreq(uint32_t freq)
-{
-    TIMER1_TAILR_R = 40e6 / freq * (2^32 - 1);
-}
+//void setFreq(uint32_t freq)
+//{
+//    TIMER1_TAILR_R = 40e6 / freq * ((1UL << 32) - 1);
+//}
 
-char *buffer;
 // the ISR writes each sample of the signal (depends on sampling frequency)
 void writeDACISR()
 {
     setPinValue(LDAC, 0);
     setPinValue(LDAC, 1);
-
-    uint16_t codeI;
-    uint16_t codeQ;
 
     switch(mode_i)
     {
@@ -94,7 +100,7 @@ void writeDACISR()
             codeI = raw_i; // raw value from shell
             break;
         case DC:
-            codeI = voltsToRAW(voltage_i, gain_i, offset_i);
+            codeI = voltsToRAW(amplitude_i, gain_i, offset_i);
             break;
         case SINE:
             codeI = LUTi[phase_acci >> 24];
@@ -113,31 +119,27 @@ void writeDACISR()
             codeQ = raw_q;
             break;
         case DC:
-            codeQ = voltsToRAW(voltage_q, gain_q, offset_q);
+            codeQ = voltsToRAW(amplitude_q, gain_q, offset_q);
             break;
         case SINE:
-            codeQ = LUTq[phase_accq];
+            codeQ = LUTq[phase_accq >> 24];
             break;
         case TONE:
-            codeQ = LUTq[phase_accq];
+            codeQ = LUTq[phase_accq >> 24];
             break;
     }
 
-    // advance phase
-    if (mode_i== TONE || mode_i == SINE)
+    // advance phase once per sample
+    if (mode_i == TONE || mode_i == SINE)
     {
         phase_acci += delta_phasei;
-        if (phase_acci > 256) phase_acci = 0;
     }
     if (mode_q == TONE || mode_q == SINE)
     {
-        phase_accq += delta_phaseq;
-        if (phase_accq > 256) phase_accq = 0;
+        phase_accq += delta_phaseq; 
     }
 
     // write to DAC
-    putsUart0(toAsciiHex(buffer, codeI));
-    putsUart0("\n\r");
     if(mode_i != OFF) writeSpi1Data(makeFrameI(codeI));
     if(mode_q != OFF) writeSpi1Data(makeFrameQ(codeQ));
 
