@@ -238,6 +238,23 @@ int main(void)
             putsUart0("\e[0;36mTONE set\r\n");
         }
 
+        // Commmand to set modulation
+        else if (isCommand(&data, "mod", 1))
+        {
+            char* modulation_mode = getFieldString(&data, 1);
+
+            if(str_compare(modulation_mode, "ook") == 0) mode_i = OOK;
+            else if(str_compare(modulation_mode, "bpsk") == 0) mode_i = BPSK;
+            else if(str_compare(modulation_mode, "qpsk") == 0) {mode_i = QPSK; mode_q = QPSK}
+            else if(str_compare(modulation_mode, "psk8") == 0) {mode_i = PSK8; mode_q = PSK8}
+            else if(str_compare(modulation_mode, "quam16") == 0) {mode_i = QUAM16; mode_q = QUAM16}
+            else putsUart0("invalid");
+
+            modulate();
+            putsUart0("\e[0;36mMODULATOR SET\r\n");
+        }
+
+
         // Command to show help message
         else if (isCommand(&data, "help", 0))
         {

@@ -28,7 +28,12 @@ typedef enum {
     RAW,
     DC,
     SINE,
-    TONE
+    TONE,
+    OOK,
+    BPSK,
+    QPSK,
+    PSK8,
+    QUAM16
 } MODE_t;
 
 // Shared globals (defined in main.c)

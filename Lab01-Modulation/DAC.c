@@ -36,6 +36,54 @@ static const uint32_t offset_q = 2104;
 static const uint32_t gain_i   = 1991;  // Measured to be 1995, but gain + offset must be <= 4095. counts corresponding to +0.5V from offset (calibrate)
 static const uint32_t gain_q   = 1991;  // Measured to be 2002, but gain + offset must be <= 4095.
 
+char encoding_pattern = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+uint32_t pattern_index = 0;
+uint32_t mod_patterni[416];
+uint32_t mod_patternq[416];
+
+uint32_t ookI[2] = { 0,
+                     gain_i};
+uint32_t ookQ[2] = { 0,
+                     0};
+
+uint32_t bpskI[2] = { gain_i,
+                      -gain_i};
+uint32_t bpskQ[2] = { 0,
+                      0};
+
+uint32_t qpskI[2] = { gain_i,
+                      -gain_i};
+uint32_t qpskQ[2] = { gain_q,
+                      -gain_q};
+
+uint32_t psk8I[8] = {  gain_i * 1.00,   // 000 -> 0°
+                       gain_i * 0.71,   // 001 -> 45°
+                      -gain_i * 0.71,   // 010 -> 135°
+                       gain_i * 0.00,   // 011 -> 90°
+                       gain_i * 0.71,   // 100 -> 315°
+                      -gain_i * 0.00,   // 101 -> 270°
+                      -gain_i * 1.00,   // 110 -> 180°
+                      -gain_i * 0.71 }; // 111 -> 225°
+
+uint32_t psk8Q[8] = {  gain_q * 0.00,   // 000 -> 0°
+                       gain_q * 0.71,   // 001 -> 45°
+                       gain_q * 0.71,   // 010 -> 135°
+                       gain_q * 1.00,   // 011 -> 90°
+                      -gain_q * 0.71,   // 100 -> 315°
+                      -gain_q * 1.00,   // 101 -> 270°
+                      -gain_q * 0.00,   // 110 -> 180°
+                      -gain_q * 0.71 }; // 111 -> 225°
+
+int32_t qam16I[4] = { -gain_i,
+                      -gain_i/3,
+                       gain_i/3,
+                       gain_i };
+
+int32_t qam16Q[4] = { -gain_q,
+                      -gain_q/3,
+                       gain_q/3,
+                       gain_q };
+
 //-----------------------------------------------------------------------------
 // Subroutines
 //-----------------------------------------------------------------------------
@@ -82,10 +130,46 @@ uint16_t voltsToRAW(uint32_t V, uint32_t gain, uint32_t offset)
     return (uint16_t)R;
 }
 
-//void setFreq(uint32_t freq)
-//{
-//    TIMER1_TAILR_R = 40e6 / freq * ((1UL << 32) - 1);
-//}
+void modulate()
+{
+    int i;
+    switch(mode_i)
+    {
+        case OOK:
+            for (i = 0; i < 416; i++)
+            {
+                mod_patterni[i] = ookI[(pattern >> i) && 0b1];
+            }
+            break;
+        case BPSK:
+            for (i = 0; i < 416; i++)
+            {
+                mod_patterni[i] = bpskI[(pattern >> i) && 0b1];
+            }
+            break;
+
+        case QPSK:
+            break;
+
+        case PSK8:
+            break;
+
+        case QUAM16:
+        {
+            uint8_t i_index = (symbol >> 2) & 0x03;
+            uint8_t q_index = symbol & 0x03;
+
+            outI = qam16I[i_index];
+            outQ = qam16Q[q_index];
+            break;
+        }
+
+        default:
+            outI = 0;
+            outQ = 0;
+            break;
+    }
+}
 
 // the ISR writes each sample of the signal (depends on sampling frequency)
 void writeDACISR()
@@ -110,6 +194,10 @@ void writeDACISR()
         case TONE:
             codeI = LUTi[phase_acci >> 20];
             break;
+        case OOK:
+            codeI = mod_patterni[pattern_index];
+        case BPSK:
+            codeI = mod_patterni[pattern_index];
         default: break;
     }
 
@@ -141,6 +229,9 @@ void writeDACISR()
     {
         phase_accq += delta_phaseq; 
     }
+    if (mode_i == OOK || mode_i == BPSK)
+        pattern_index++
+    if (pattern_index > 416) pattern_index = 0;
 
     // write to DAC
     writeSpi1Data(makeFrameI(codeI));
