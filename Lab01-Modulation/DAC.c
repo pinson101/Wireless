@@ -31,23 +31,23 @@ static uint16_t LUTi[LUT_SIZE];
 static uint16_t LUTq[LUT_SIZE];
 
 // calibration - set to your measured values after bench calibration
-static const uint32_t offset_i = 2104; // measured DAC code that maps to 0V after op-amp
-static const uint32_t offset_q = 2104;
-static const uint32_t gain_i   = 1991;  // Measured to be 1995, but gain + offset must be <= 4095. counts corresponding to +0.5V from offset (calibrate)
+static const int32_t offset_i = 2104; // measured DAC code that maps to 0V after op-amp
+static const int32_t offset_q = 2104;
+static const int32_t gain_i   = 1991;  // Measured to be 1995, but gain + offset must be <= 4095. counts corresponding to +0.5V from offset (calibrate)
 static const uint32_t gain_q   = 1991;  // Measured to be 2002, but gain + offset must be <= 4095.
 
-char encoding_pattern = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+char encoding_pattern = 'A';
 uint32_t pattern_index = 0;
 uint32_t mod_patterni[416];
 uint32_t mod_patternq[416];
 
-uint32_t ookI[2] = { 0,
-                     gain_i};
-uint32_t ookQ[2] = { 0,
-                     0};
+int32_t ookI[2] = { 0,
+                    gain_i};
+int32_t ookQ[2] = { 0,
+                    0};
 
-uint32_t bpskI[2] = { gain_i,
-                      -gain_i};
+int32_t bpskI[2] = { gain_i + offset_i,
+                     -gain_i + offset_i};
 uint32_t bpskQ[2] = { 0,
                       0};
 
@@ -136,15 +136,16 @@ void modulate()
     switch(mode_i)
     {
         case OOK:
-            for (i = 0; i < 416; i++)
+            for (i = 0; i < 9; i++)
             {
-                mod_patterni[i] = ookI[(pattern >> i) && 0b1];
+                mod_patterni[i] = ookI[(encoding_pattern >> i) && 0b1];
             }
             break;
         case BPSK:
-            for (i = 0; i < 416; i++)
+            for (i = 0; i < 9; i++)
             {
-                mod_patterni[i] = bpskI[(pattern >> i) && 0b1];
+                mod_patterni[i] = bpskI[(encoding_pattern >> i) & 0b1];
+                //mod_patterni[i] = bpskI[0];
             }
             break;
 
@@ -156,17 +157,12 @@ void modulate()
 
         case QUAM16:
         {
-            uint8_t i_index = (symbol >> 2) & 0x03;
-            uint8_t q_index = symbol & 0x03;
 
-            outI = qam16I[i_index];
-            outQ = qam16Q[q_index];
             break;
         }
 
         default:
-            outI = 0;
-            outQ = 0;
+
             break;
     }
 }
@@ -230,8 +226,8 @@ void writeDACISR()
         phase_accq += delta_phaseq; 
     }
     if (mode_i == OOK || mode_i == BPSK)
-        pattern_index++
-    if (pattern_index > 416) pattern_index = 0;
+        pattern_index++;
+    if (pattern_index > 9) pattern_index = 0;
 
     // write to DAC
     writeSpi1Data(makeFrameI(codeI));
@@ -257,7 +253,7 @@ void initTimer1()
 
     // 5) Set reload value for 10 us period at 80 MHz:
     //    ticks = clock * period = 80e6 * 10e-6 = 800 -> TAILR = 800 - 1 = 799
-    TIMER1_TAILR_R = 400 - 1;                  // periodic reload value
+    TIMER1_TAILR_R = 800 - 1;                  // periodic reload value
 
     // 6) Clear any pending timeout
     TIMER1_ICR_R = TIMER_ICR_TATOCINT;

@@ -174,7 +174,7 @@ int main(void)
                 phase_i = phase;
                 // set 32-bit phase accumulator from degrees: phase/360 * 2^32
                 phase_acci = (uint32_t)(((uint64_t)phase_i * (1ULL<<32)) / 360ULL);
-                delta_phasei = (uint32_t)(((uint64_t)freq_i * (1ULL<<32)) / 200000ULL);
+                delta_phasei = (uint32_t)(((uint64_t)freq_i * (1ULL<<32)) / 100000ULL);
                 makeLUT(amplitude_i);
                 mode_i = SINE;
 
@@ -194,7 +194,7 @@ int main(void)
                 phase_q = phase;
                 // set 32-bit phase accumulator from degrees: phase/360 * 2^32 
                 phase_accq = (uint32_t)(((uint64_t)phase_q * (1ULL<<32)) / 360ULL);
-                delta_phaseq = (uint32_t)(((uint64_t)freq_q * (1ULL<<32)) / 200000ULL);
+                delta_phaseq = (uint32_t)(((uint64_t)freq_q * (1ULL<<32)) / 100000ULL);
                 makeLUT(amplitude_q);
                 mode_q = SINE;
 
@@ -225,9 +225,9 @@ int main(void)
             freq_i = frequency;
             freq_q = frequency;
             phase_acci = 0;
-            delta_phasei = (uint32_t)(((uint64_t)freq_i * (1ULL<<32)) / 200000ULL);
+            delta_phasei = (uint32_t)(((uint64_t)freq_i * (1ULL<<32)) / 100000ULL);
             phase_accq = 0;
-            delta_phaseq = (uint32_t)(((uint64_t)freq_q * (1ULL<<32)) / 200000ULL);
+            delta_phaseq = (uint32_t)(((uint64_t)freq_q * (1ULL<<32)) / 100000ULL);
             makeLUT(amplitude);
             mode_i = TONE;
             mode_q = TONE;
@@ -245,9 +245,13 @@ int main(void)
 
             if(str_compare(modulation_mode, "ook") == 0) mode_i = OOK;
             else if(str_compare(modulation_mode, "bpsk") == 0) mode_i = BPSK;
-            else if(str_compare(modulation_mode, "qpsk") == 0) {mode_i = QPSK; mode_q = QPSK}
-            else if(str_compare(modulation_mode, "psk8") == 0) {mode_i = PSK8; mode_q = PSK8}
-            else if(str_compare(modulation_mode, "quam16") == 0) {mode_i = QUAM16; mode_q = QUAM16}
+            else if(str_compare(modulation_mode, "qpsk") == 0)
+            {
+                mode_i = QPSK;
+                mode_q = QPSK;
+            }
+            else if(str_compare(modulation_mode, "psk8") == 0) {mode_i = PSK8; mode_q = PSK8;}
+            else if(str_compare(modulation_mode, "quam16") == 0) {mode_i = QUAM16; mode_q = QUAM16;}
             else putsUart0("invalid");
 
             modulate();
