@@ -43,7 +43,7 @@ int main(void)
     enablePort(PORTE);
     selectPinPushPullOutput(LDAC);
     setPinValue(LDAC, 1);
-    initTimer1();              // Initialize Periodic Timer 1 to trigger at 50KHz
+    initTimer1();              // Initialize Periodic Timer 1 to trigger at 100KHz
 
     USER_DATA data;
 
@@ -165,28 +165,42 @@ int main(void)
 
             if (str_compare(iq, "i") == 0 || str_compare(iq, "I") == 0)
             {
+                // prevent ISR from seeing partial updates to phase/LUT
+                TIMER1_IMR_R &= ~TIMER_IMR_TATOIM;
+
                 freq_i = frequency;
                 phase_i = phase;
                 amplitude_i = amplitude;
                 phase_i = phase;
                 // set 32-bit phase accumulator from degrees: phase/360 * 2^32
                 phase_acci = (uint32_t)(((uint64_t)phase_i * (1ULL<<32)) / 360ULL);
-                delta_phasei = (uint32_t)(((uint64_t)freq_i * (1ULL<<32)) / 50000ULL);
+                delta_phasei = (uint32_t)(((uint64_t)freq_i * (1ULL<<32)) / 200000ULL);
                 makeLUT(amplitude_i);
                 mode_i = SINE;
+
+                // re-enable Timer1 interrupts
+                TIMER1_IMR_R |= TIMER_IMR_TATOIM;
+
                 putsUart0("\e[0;36mI SINE wave set\r\n");
             }
             else if (str_compare(iq, "q") == 0 || str_compare(iq, "Q") == 0)
             {
+                // prevent ISR from seeing partial updates to phase/LUT
+                TIMER1_IMR_R &= ~TIMER_IMR_TATOIM;
+
                 freq_q = frequency;
                 phase_q = phase;
                 amplitude_q = amplitude;
                 phase_q = phase;
                 // set 32-bit phase accumulator from degrees: phase/360 * 2^32 
                 phase_accq = (uint32_t)(((uint64_t)phase_q * (1ULL<<32)) / 360ULL);
-                delta_phaseq = (uint32_t)(((uint64_t)freq_q * (1ULL<<32)) / 50000ULL);
+                delta_phaseq = (uint32_t)(((uint64_t)freq_q * (1ULL<<32)) / 200000ULL);
                 makeLUT(amplitude_q);
                 mode_q = SINE;
+
+                // re-enable Timer1 interrupts
+                TIMER1_IMR_R |= TIMER_IMR_TATOIM;
+
                 putsUart0("\e[0;36mQ SINE wave set\r\n");
             }
             else
@@ -203,12 +217,24 @@ int main(void)
             uint32_t amplitude = getFieldInteger(&data, 1);
             uint32_t frequency = getFieldInteger(&data, 2);
 
+            // prevent ISR from seeing partial updates to phase/LUT
+            TIMER1_IMR_R &= ~TIMER_IMR_TATOIM;
+
             amplitude_i = amplitude;
             amplitude_q = amplitude;
             freq_i = frequency;
             freq_q = frequency;
+            phase_acci = 0;
+            delta_phasei = (uint32_t)(((uint64_t)freq_i * (1ULL<<32)) / 200000ULL);
+            phase_accq = 0;
+            delta_phaseq = (uint32_t)(((uint64_t)freq_q * (1ULL<<32)) / 200000ULL);
+            makeLUT(amplitude);
             mode_i = TONE;
             mode_q = TONE;
+
+            // re-enable Timer1 interrupts
+            TIMER1_IMR_R |= TIMER_IMR_TATOIM;
+
             putsUart0("\e[0;36mTONE set\r\n");
         }
 

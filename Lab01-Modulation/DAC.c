@@ -76,9 +76,10 @@ uint16_t makeFrameQ(uint16_t code12)
 
 uint16_t voltsToRAW(uint32_t V, uint32_t gain, uint32_t offset)
 {
-    uint16_t R = offset + ((V / 1000) * gain); // volts given in mV
+    // V in mV; compute offset + (V * gain / 1000) with full precision
+    uint32_t R = offset + (uint32_t)(((uint64_t)V * gain) / 1000ULL);
     if (R > 4095) R = 4095;
-    return R;
+    return (uint16_t)R;
 }
 
 //void setFreq(uint32_t freq)
@@ -95,6 +96,7 @@ void writeDACISR()
     switch(mode_i)
     {
         case OFF:
+            codeI = offset_i;
             break;
         case RAW:
             codeI = raw_i; // raw value from shell
@@ -103,10 +105,10 @@ void writeDACISR()
             codeI = voltsToRAW(amplitude_i, gain_i, offset_i);
             break;
         case SINE:
-            codeI = LUTi[phase_acci >> 24];
+            codeI = LUTi[phase_acci >> 20];
             break;
         case TONE:
-            codeI = LUTi[phase_acci >> 24];
+            codeI = LUTi[phase_acci >> 20];
             break;
         default: break;
     }
@@ -114,6 +116,7 @@ void writeDACISR()
     switch(mode_q)
     {
         case OFF:
+            codeQ = offset_q;
             break;
         case RAW:
             codeQ = raw_q;
@@ -122,10 +125,10 @@ void writeDACISR()
             codeQ = voltsToRAW(amplitude_q, gain_q, offset_q);
             break;
         case SINE:
-            codeQ = LUTq[phase_accq >> 24];
+            codeQ = LUTq[phase_accq >> 20];
             break;
         case TONE:
-            codeQ = LUTq[phase_accq >> 24];
+            codeQ = LUTq[phase_accq >> 20];
             break;
     }
 
@@ -140,8 +143,8 @@ void writeDACISR()
     }
 
     // write to DAC
-    if(mode_i != OFF) writeSpi1Data(makeFrameI(codeI));
-    if(mode_q != OFF) writeSpi1Data(makeFrameQ(codeQ));
+    writeSpi1Data(makeFrameI(codeI));
+    writeSpi1Data(makeFrameQ(codeQ));
 
     // clear the timer interrupt
     TIMER1_ICR_R = TIMER_ICR_TATOCINT;
@@ -161,9 +164,9 @@ void initTimer1()
     TIMER1_CFG_R = TIMER_CFG_32_BIT_TIMER;      // 32-bit timer mode
     TIMER1_TAMR_R = TIMER_TAMR_TAMR_PERIOD;     // periodic timer (count-down)
 
-    // 5) Set reload value for 20 us period at 80 MHz:
-    //    ticks = clock * period = 80e6 * 20e-6 = 1600 -> TAILR = 1600 - 1 = 1599
-    TIMER1_TAILR_R = 1600 - 1;                  // periodic reload value
+    // 5) Set reload value for 10 us period at 80 MHz:
+    //    ticks = clock * period = 80e6 * 10e-6 = 800 -> TAILR = 800 - 1 = 799
+    TIMER1_TAILR_R = 400 - 1;                  // periodic reload value
 
     // 6) Clear any pending timeout
     TIMER1_ICR_R = TIMER_ICR_TATOCINT;

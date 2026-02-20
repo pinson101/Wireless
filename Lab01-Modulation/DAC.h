@@ -42,7 +42,7 @@ extern volatile uint32_t delta_phasei, delta_phaseq;         // step per sample 
 extern volatile uint16_t codeI, codeQ;      // final DAC codes to write (0..4095)
 
 
-#define LUT_SIZE 256
+#define LUT_SIZE 4096
 
 //-----------------------------------------------------------------------------
 // Subroutines
