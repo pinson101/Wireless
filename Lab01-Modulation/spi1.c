@@ -69,7 +69,6 @@ void initSpi1(uint32_t pinMask)
     SSI1_CR1_R = 0;                                    // select master mode
     SSI1_CC_R = 0;                                     // select system clock as the clock source
 
-    // Jacob changed this line
     SSI1_CR0_R = SSI_CR0_FRF_MOTO | SSI_CR0_DSS_16;    // set SR=0, 16-bit, mode 0 (SPO=0, SPH=0)
     // SSI1_CR0_R = SSI_CR0_FRF_MOTO | SSI_CR0_DSS_8;     // set SR=0, 8-bit
 }
@@ -101,6 +100,7 @@ void setSpi1Mode(uint8_t polarity, uint8_t phase)
 }
 
 // Blocking function that writes data and waits until the tx buffer is empty
+// removed blocking functionality to allow for higher sampling rate in timer ISR
 void writeSpi1Data(uint32_t data)
 {
     SSI1_DR_R = data;

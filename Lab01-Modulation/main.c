@@ -96,28 +96,12 @@ int main(void)
                 raw_i = R;
                 mode_i = RAW;
                 putsUart0("\e[0;36mI RAW mode set\r\n");
-                // Send R to I channel DAC via SPI1
-                // This should go in the ISR, but doing it here for now to test SPI
-                // DAC expects 16-bit data with control bits in upper 4 bits
-                //writeSpi1Data(0x3 << 12 | (R & 0xFFF));
-                //waitMicrosecond(30);
-                //setPinValue(LDAC, 0);
-                //waitMicrosecond(1);
-                //setPinValue(LDAC, 1);
             }
             else if(str_compare(iq, "q") == 0 || str_compare(iq, "Q") == 0)
             {
                 raw_q = R;
                 mode_q = RAW;
                 putsUart0("\e[0;36mQ RAW mode set\r\n");
-                // Send R to Q channel DAC via SPI1
-                // This should go in the ISR, but doing it here for now to test SPI
-                // DAC expects 16-bit data with control bits in upper 4 bits
-                //writeSpi1Data(0xB << 12 | (R & 0xFFF));
-                //waitMicrosecond(30);
-                //setPinValue(LDAC, 0);
-                //waitMicrosecond(1);
-                //setPinValue(LDAC, 1);
             }
             else
             {
@@ -275,6 +259,8 @@ int main(void)
                       "    \e[0m- Set I or Q channel to sine wave with amplitude A (mVpp), frequency f (Hz), and optional phase p (degrees)\r\n");
             putsUart0("  \e[0;36mtone [A] [f] \r\n"
                       "    \e[0m- Set both channels to tone with amplitude A (mVpp) and frequency f (Hz)\r\n");
+            putsUart0("  \e[0;36mmod [mode] \r\n"
+                      "    \e[0m- Set modulation mode (OOK, BPSK, QPSK, PSK8, QUAM16)\r\n");
             putsUart0("  \e[0;36mhelp \r\n"
                       "    \e[0m- Show this help message\r\n");
         }

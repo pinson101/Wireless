@@ -30,11 +30,11 @@
 static uint16_t LUTi[LUT_SIZE];
 static uint16_t LUTq[LUT_SIZE];
 
-// calibration - set to your measured values after bench calibration
-static const int32_t offset_i = 2104; // measured DAC code that maps to 0V after op-amp
-static const int32_t offset_q = 2104;
-static const int32_t gain_i   = 1991;  // Measured to be 1995, but gain + offset must be <= 4095. counts corresponding to +0.5V from offset (calibrate)
-static const uint32_t gain_q   = 1991;  // Measured to be 2002, but gain + offset must be <= 4095.
+/* calibration parameters for DAC output voltage (macros) */
+#define OFFSET_I 2104  /* measured DAC code that maps to 0V after op-amp */
+#define OFFSET_Q 2104
+#define GAIN_I   1991  /* counts corresponding to +0.5V from offset (calibrate) */
+#define GAIN_Q   1991
 
 char encoding_pattern = 'A';
 uint32_t pattern_index = 0;
@@ -42,47 +42,47 @@ uint32_t mod_patterni[416];
 uint32_t mod_patternq[416];
 
 int32_t ookI[2] = { 0,
-                    gain_i};
+                    GAIN_I};
 int32_t ookQ[2] = { 0,
                     0};
 
-int32_t bpskI[2] = { gain_i + offset_i,
-                     -gain_i + offset_i};
+int32_t bpskI[2] = { GAIN_I + OFFSET_I,
+                     -GAIN_I + OFFSET_I};
 uint32_t bpskQ[2] = { 0,
                       0};
 
-uint32_t qpskI[2] = { gain_i,
-                      -gain_i};
-uint32_t qpskQ[2] = { gain_q,
-                      -gain_q};
+int32_t qpskI[2] = { GAIN_I,
+                      -GAIN_I};
+uint32_t qpskQ[2] = { GAIN_Q,
+                      -GAIN_Q};
 
-uint32_t psk8I[8] = {  gain_i * 1.00,   // 000 -> 0Â°
-                       gain_i * 0.71,   // 001 -> 45Â°
-                      -gain_i * 0.71,   // 010 -> 135Â°
-                       gain_i * 0.00,   // 011 -> 90Â°
-                       gain_i * 0.71,   // 100 -> 315Â°
-                      -gain_i * 0.00,   // 101 -> 270Â°
-                      -gain_i * 1.00,   // 110 -> 180Â°
-                      -gain_i * 0.71 }; // 111 -> 225Â°
+uint32_t psk8I[8] = {  GAIN_I * 1.00,   // 000 -> 0°
+                       GAIN_I * 0.71,   // 001 -> 45°
+                      -GAIN_I * 0.71,   // 010 -> 135°
+                       GAIN_I * 0.00,   // 011 -> 90°
+                       GAIN_I * 0.71,   // 100 -> 315°
+                      -GAIN_I * 0.00,   // 101 -> 270°
+                      -GAIN_I * 1.00,   // 110 -> 180°
+                      -GAIN_I * 0.71 }; // 111 -> 225°
 
-uint32_t psk8Q[8] = {  gain_q * 0.00,   // 000 -> 0Â°
-                       gain_q * 0.71,   // 001 -> 45Â°
-                       gain_q * 0.71,   // 010 -> 135Â°
-                       gain_q * 1.00,   // 011 -> 90Â°
-                      -gain_q * 0.71,   // 100 -> 315Â°
-                      -gain_q * 1.00,   // 101 -> 270Â°
-                      -gain_q * 0.00,   // 110 -> 180Â°
-                      -gain_q * 0.71 }; // 111 -> 225Â°
+uint32_t psk8Q[8] = {  GAIN_Q * 0.00,   // 000 -> 0°
+                       GAIN_Q * 0.71,   // 001 -> 45°
+                       GAIN_Q * 0.71,   // 010 -> 135°
+                       GAIN_Q * 1.00,   // 011 -> 90°
+                      -GAIN_Q * 0.71,   // 100 -> 315°
+                      -GAIN_Q * 1.00,   // 101 -> 270°
+                      -GAIN_Q * 0.00,   // 110 -> 180°
+                      -GAIN_Q * 0.71 }; // 111 -> 225°
 
-int32_t qam16I[4] = { -gain_i,
-                      -gain_i/3,
-                       gain_i/3,
-                       gain_i };
+int32_t qam16I[4] = { -GAIN_I,
+                      -GAIN_I/3,
+                       GAIN_I/3,
+                       GAIN_I };
 
-int32_t qam16Q[4] = { -gain_q,
-                      -gain_q/3,
-                       gain_q/3,
-                       gain_q };
+int32_t qam16Q[4] = { -GAIN_Q,
+                      -GAIN_Q/3,
+                       GAIN_Q/3,
+                       GAIN_Q };
 
 //-----------------------------------------------------------------------------
 // Subroutines
@@ -99,8 +99,8 @@ void makeLUT(uint32_t amplitude)
         double s = sin(angle);
         double c = cos(angle);
 
-        int32_t v_i = (int32_t)lround((double)offset_i + a * s * (double)gain_i);
-        int32_t v_q = (int32_t)lround((double)offset_q + a * c * (double)gain_q);
+        int32_t v_i = (int32_t)lround((double)OFFSET_I + a * s * (double)GAIN_I);
+        int32_t v_q = (int32_t)lround((double)OFFSET_Q + a * c * (double)GAIN_Q);
 
         if (v_i < 0) v_i = 0; else if (v_i > 4095) v_i = 4095;
         if (v_q < 0) v_q = 0; else if (v_q > 4095) v_q = 4095;
@@ -176,13 +176,13 @@ void writeDACISR()
     switch(mode_i)
     {
         case OFF:
-            codeI = offset_i;
+            codeI = OFFSET_I;
             break;
         case RAW:
             codeI = raw_i; // raw value from shell
             break;
         case DC:
-            codeI = voltsToRAW(amplitude_i, gain_i, offset_i);
+            codeI = voltsToRAW(amplitude_i, GAIN_I, OFFSET_I);
             break;
         case SINE:
             codeI = LUTi[phase_acci >> 20];
@@ -200,13 +200,13 @@ void writeDACISR()
     switch(mode_q)
     {
         case OFF:
-            codeQ = offset_q;
+            codeQ = OFFSET_Q;
             break;
         case RAW:
             codeQ = raw_q;
             break;
         case DC:
-            codeQ = voltsToRAW(amplitude_q, gain_q, offset_q);
+            codeQ = voltsToRAW(amplitude_q, GAIN_Q, OFFSET_Q);
             break;
         case SINE:
             codeQ = LUTq[phase_accq >> 20];
@@ -268,31 +268,3 @@ void initTimer1()
     NVIC_EN0_R = 1 << (INT_TIMER1A-16);
 }
 
-
-
-/*
- * in main()
- *  rate 40MHz/50kHz in GPIO timer for frequency
- *  TAIL_R = 40e6/50e3
- *
- *  NVIC_ST_RELOAD_R = 40000 - 1;  // 1ms tick period
-    NVIC_ST_CTRL_R = NVIC_ST_CTRL_CLK_SRC | NVIC_ST_CTRL_INTEN | NVIC_ST_CTRL_ENABLE;
-
-    // TIMER1A counting up (wrap around at 2^32 / 40e6 = 107.37 seconds)
-    // Enable timer 1
-    SYSCTL_RCGCTIMER_R |= SYSCTL_RCGCTIMER_R1;
-    while ((SYSCTL_PRTIMER_R & SYSCTL_PRTIMER_R1) == 0);
-    TIMER1_CTL_R &= ~TIMER_CTL_TAEN;
-    // set to 32 bit
-    TIMER1_CFG_R = 0x00000000;
-    // count up
-    TIMER1_TAMR_R = TIMER_TAMR_TAMR_PERIOD | TIMER_TAMR_TACDIR;
-    // set reload value (max)
-    TIMER1_TAILR_R = 0xFFFFFFFF;
-    // clear timeout flag and start timer
-    TIMER1_ICR_R = TIMER_ICR_TATOCINT;
-    TIMER1_CTL_R |= TIMER_CTL_TAEN;
- *
- * in shell()
- *  if phase exists just take it as a ratio and start sampling from there
- */
