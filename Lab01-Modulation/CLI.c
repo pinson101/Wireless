@@ -25,18 +25,27 @@ void getsUart0(USER_DATA *data)
         if (count > 0 && (c == 8 || c == 127)) // Backspace
         {
             count--;
+            /* Echo backspace: move back, overwrite with space, move back again */
+            putcUart0('\b');
+            putcUart0(' ');
+            putcUart0('\b');
         }
         else if (c == 13) // carriage return
         {
+            /* Echo newline sequence */
+            putcUart0('\r');
+            putcUart0('\n');
             data->buffer[count] = '\0';
             return;
         }
-        else if (c >= 32) // space or character
+        else if (c >= 32) // space or printable character
         {
             data->buffer[count] = c;
             count++;
+            /* Echo the character back to the terminal */
+            putcUart0(c);
 
-            if (count == MAX_CHARS) //str is full
+            if (count == MAX_CHARS) // string is full
             {
                 data->buffer[count] = '\0';
                 return;

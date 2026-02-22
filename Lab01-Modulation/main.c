@@ -26,6 +26,7 @@ volatile uint32_t amplitude_i = 0, amplitude_q = 0;
 volatile uint32_t phase_acci = 0, phase_accq = 0;
 volatile uint32_t delta_phasei = 1, delta_phaseq = 1; // default step
 volatile uint16_t codeI = 0, codeQ = 0;
+volatile uint32_t sampling_freq = 100000; // default sampling frequency (100 KHz)
 //-----------------------------------------------------------------------------
 // Subroutines
 //-----------------------------------------------------------------------------
@@ -158,7 +159,7 @@ int main(void)
                 phase_i = phase;
                 // set 32-bit phase accumulator from degrees: phase/360 * 2^32
                 phase_acci = (uint32_t)(((uint64_t)phase_i * (1ULL<<32)) / 360ULL);
-                delta_phasei = (uint32_t)(((uint64_t)freq_i * (1ULL<<32)) / 100000ULL);
+                delta_phasei = (uint32_t)(((uint64_t)freq_i * (1ULL<<32)) / (uint64_t)sampling_freq);
                 makeLUT(amplitude_i);
                 mode_i = SINE;
 
@@ -178,7 +179,7 @@ int main(void)
                 phase_q = phase;
                 // set 32-bit phase accumulator from degrees: phase/360 * 2^32 
                 phase_accq = (uint32_t)(((uint64_t)phase_q * (1ULL<<32)) / 360ULL);
-                delta_phaseq = (uint32_t)(((uint64_t)freq_q * (1ULL<<32)) / 100000ULL);
+                delta_phaseq = (uint32_t)(((uint64_t)freq_q * (1ULL<<32)) / (uint64_t)sampling_freq);
                 makeLUT(amplitude_q);
                 mode_q = SINE;
 
@@ -209,9 +210,9 @@ int main(void)
             freq_i = frequency;
             freq_q = frequency;
             phase_acci = 0;
-            delta_phasei = (uint32_t)(((uint64_t)freq_i * (1ULL<<32)) / 100000ULL);
+            delta_phasei = (uint32_t)(((uint64_t)freq_i * (1ULL<<32)) / (uint64_t)sampling_freq);
             phase_accq = 0;
-            delta_phaseq = (uint32_t)(((uint64_t)freq_q * (1ULL<<32)) / 100000ULL);
+            delta_phaseq = (uint32_t)(((uint64_t)freq_q * (1ULL<<32)) / (uint64_t)sampling_freq);
             makeLUT(amplitude);
             mode_i = TONE;
             mode_q = TONE;
@@ -242,6 +243,15 @@ int main(void)
             putsUart0("\e[0;36mMODULATOR SET\r\n");
         }
 
+        // Command to set sampling frequency 
+        else if (isCommand(&data, "fs", 1))
+        {
+            uint32_t fs = getFieldInteger(&data, 1);
+            sampling_freq = fs;
+            // set Timer1 reload value based on desired sampling frequency
+            TIMER1_TAILR_R = (80000000 / fs) - 1;
+            putsUart0("\e[0;36mSampling frequency set\r\n");
+        }
 
         // Command to show help message
         else if (isCommand(&data, "help", 0))
@@ -261,6 +271,8 @@ int main(void)
                       "    \e[0m- Set both channels to tone with amplitude A (mVpp) and frequency f (Hz)\r\n");
             putsUart0("  \e[0;36mmod [mode] \r\n"
                       "    \e[0m- Set modulation mode (OOK, BPSK, QPSK, PSK8, QUAM16)\r\n");
+            putsUart0("  \e[0;36mfs [f] \r\n"
+                      "    \e[0m- Set sampling frequency to f (Hz)\r\n");
             putsUart0("  \e[0;36mhelp \r\n"
                       "    \e[0m- Show this help message\r\n");
         }
