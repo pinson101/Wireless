@@ -253,7 +253,7 @@ void modulate()
         }
             break;
 
-        case QUAM16:
+        case QAM16:
         {
             uint32_t symbol_index = 0;
             uint32_t bit_pos = 0;
@@ -333,7 +333,7 @@ void writeDACISR()
         case PSK8:
             codeI = mod_patterni[pattern_index];
             break;
-        case QUAM16:
+        case QAM16:
             codeI = mod_patterni[pattern_index];
             break;
         default: break;
@@ -362,7 +362,7 @@ void writeDACISR()
         case PSK8:
             codeQ = mod_patternq[pattern_index];
             break;
-        case QUAM16:
+        case QAM16:
             codeQ = mod_patternq[pattern_index];
             break;
     }
@@ -376,7 +376,7 @@ void writeDACISR()
     {
         phase_accq += delta_phaseq; 
     }
-    if (mode_i == OOK || mode_i == BPSK || mode_i == QPSK || mode_i == PSK8 || mode_i == QUAM16)
+    if (mode_i == OOK || mode_i == BPSK || mode_i == QPSK || mode_i == PSK8 || mode_i == QAM16)
     {
         pattern_index++;
     }
@@ -392,7 +392,7 @@ void writeDACISR()
             wrap_limit = encoding_total_bits / 2; break; /* 2 bits per symbol */
         case PSK8:
             wrap_limit = encoding_total_bits / 3; break; /* 3 bits per symbol */
-        case QUAM16:
+        case QAM16:
             wrap_limit = encoding_total_bits / 4; break; /* 4 bits per symbol */
         default:
             wrap_limit = encoding_total_bits; break;

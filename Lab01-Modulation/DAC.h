@@ -33,7 +33,7 @@ typedef enum {
     BPSK,
     QPSK,
     PSK8,
-    QUAM16
+    QAM16
 } MODE_t;
 
 // Shared globals (defined in main.c)
@@ -46,6 +46,7 @@ extern volatile uint32_t phase_acci, phase_accq; // LUT indices 0..255
 extern volatile uint32_t delta_phasei, delta_phaseq;         // step per sample (0..255)
 extern volatile uint16_t codeI, codeQ;      // final DAC codes to write (0..4095)
 extern volatile uint32_t sampling_freq;     // Hz
+extern volatile uint8_t filter_enabled;    // 0 = no filter, 1 = filter enabled
 
 
 #define LUT_SIZE 4096

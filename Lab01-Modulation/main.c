@@ -27,6 +27,7 @@ volatile uint32_t phase_acci = 0, phase_accq = 0;
 volatile uint32_t delta_phasei = 1, delta_phaseq = 1; // default step
 volatile uint16_t codeI = 0, codeQ = 0;
 volatile uint32_t sampling_freq = 100000; // default sampling frequency (100 KHz)
+volatile uint8_t filter_enabled = 0;
 //-----------------------------------------------------------------------------
 // Subroutines
 //-----------------------------------------------------------------------------
@@ -235,8 +236,8 @@ int main(void)
                 mode_i = QPSK;
                 mode_q = QPSK;
             }
-            else if(str_compare(modulation_mode, "psk8") == 0) {mode_i = PSK8; mode_q = PSK8;}
-            else if(str_compare(modulation_mode, "quam16") == 0) {mode_i = QUAM16; mode_q = QUAM16;}
+            else if(str_compare(modulation_mode, "8psk") == 0) {mode_i = PSK8; mode_q = PSK8;}
+            else if(str_compare(modulation_mode, "16qam") == 0) {mode_i = QAM16; mode_q = QAM16;}
             else putsUart0("invalid");
 
             modulate();
@@ -251,6 +252,13 @@ int main(void)
             // set Timer1 reload value based on desired sampling frequency
             TIMER1_TAILR_R = (80000000 / fs) - 1;
             putsUart0("\e[0;36mSampling frequency set\r\n");
+        }
+
+        // Command to turn on filtering
+        else if (isCommand(&data, "filter", 0))
+        {
+            filter_enabled = 1;
+            putsUart0("\e[0;36mFilter enabled\r\n");
         }
 
         // Command to show help message
@@ -270,7 +278,7 @@ int main(void)
             putsUart0("  \e[0;36mtone [A] [f] \r\n"
                       "    \e[0m- Set both channels to tone with amplitude A (mVpp) and frequency f (Hz)\r\n");
             putsUart0("  \e[0;36mmod [mode] \r\n"
-                      "    \e[0m- Set modulation mode (OOK, BPSK, QPSK, PSK8, QUAM16)\r\n");
+                      "    \e[0m- Set modulation mode (OOK, BPSK, QPSK, 8PSK, 16QAM)\r\n");
             putsUart0("  \e[0;36mfs [f] \r\n"
                       "    \e[0m- Set sampling frequency to f (Hz)\r\n");
             putsUart0("  \e[0;36mhelp \r\n"
