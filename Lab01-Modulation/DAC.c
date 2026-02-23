@@ -43,6 +43,10 @@ uint32_t pattern_index = 0;
 uint32_t mod_patterni[416];
 uint32_t mod_patternq[416];
 
+// filtering stuff
+uint32_t filter_bufferi[31];
+uint32_t filter_bufferq[31];
+
 int32_t ookI[2] = { 0,
                     GAIN_I};
 int32_t ookQ[2] = { 0,
@@ -85,6 +89,11 @@ int32_t qam16Q[4] = { -GAIN_Q,
                       -GAIN_Q/3,
                        GAIN_Q/3,
                        GAIN_Q };
+
+int32_t hrrc[] = {0.0023, -0.0043, -0.0102, -0.0090, 0.0015, 0.0159, 0.0230, 0.0130,
+-0.0136, -0.0422, -0.0493, -0.0160, 0.0593, 0.1553, 0.2357, 0.2671,
+0.2357, 0.1553, 0.0593, -0.0160, -0.0493, -0.0422, -0.0136, 0.0130,
+0.0230, 0.0159, 0.0015, -0.0090, -0.0102, -0.0043, 0.0023};
 
 //-----------------------------------------------------------------------------
 // Subroutines
@@ -322,19 +331,52 @@ void writeDACISR()
             codeI = LUTi[phase_acci >> 20];
             break;
         case OOK:
-            codeI = mod_patterni[pattern_index];
-            break;
         case BPSK:
-            codeI = mod_patterni[pattern_index];
-            break;
         case QPSK:
-            codeI = mod_patterni[pattern_index];
-            break;
         case PSK8:
-            codeI = mod_patterni[pattern_index];
-            break;
         case QAM16:
-            codeI = mod_patterni[pattern_index];
+            if (filter_enabled == 0)
+                codeI = mod_patterni[pattern_index];
+            else
+            {
+                // 1 populate the buffer 
+                // 2 multiply the buffer by the table 
+                // 3 sum them up 
+                // 4 multiply by 4 
+                // 5 add value to offset 
+                // 6 write to DAC
+                int i = 0;
+                // while (i < 31*4)
+                // {
+                //     // [... symbol, 0, 0, 0 ...]
+                //     filter_bufferi[i+3] =   mod_patterni[pattern_index + (i/4)] * hrrc[i/4];
+                //     filter_buffer[i] = 0;   filter_buffer[i+1] = 0; filter_buffer[i+2] = 0; 
+                //     i+=4;
+                // }
+                // array of 0s
+                // shift array
+                // if it can accept another symbol
+                if(filter_bufferi[0] == 0 && filter_bufferi[1] == 0)
+                {
+                    filter_bufferi[0] = mod_patterni[pattern_index]
+                    pattern_index++;
+                }
+                else filter_bufferi[0] = 0;
+                for (i = 1; i < 31; i++)
+                {
+                    filter_bufferi[i] = filter_bufferi[i-1];
+                }
+
+                uint31_t filtered_i;
+                // loop through and multiply by coef and add to val
+                for (i = 0; i< 31; i++)
+                {
+                    filtered_i += filter_bufferi[i] * hrrc[i];
+                }
+                codeI= OFFSET_I + (filtered_i * 4);
+
+
+            }
             break;
         default: break;
     }
