@@ -36,7 +36,9 @@ static uint16_t LUTq[LUT_SIZE];
 #define GAIN_I   1991  /* counts corresponding to +0.5V from offset (calibrate) */
 #define GAIN_Q   1991
 
-char encoding_pattern = 'A';
+char encoding_patterns[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+const uint32_t encoding_patterns_len = sizeof(encoding_patterns) / sizeof(encoding_patterns[0]);
+const uint32_t encoding_total_bits = encoding_patterns_len * 8;
 uint32_t pattern_index = 0;
 uint32_t mod_patterni[416];
 uint32_t mod_patternq[416];
@@ -46,33 +48,33 @@ int32_t ookI[2] = { 0,
 int32_t ookQ[2] = { 0,
                     0};
 
-int32_t bpskI[2] = { GAIN_I + OFFSET_I,
-                     -GAIN_I + OFFSET_I};
-uint32_t bpskQ[2] = { 0,
-                      0};
+int32_t bpskI[2] = { GAIN_I,
+                    -GAIN_I};
+int32_t bpskQ[2] = { 0,
+                     0};
 
 int32_t qpskI[2] = { GAIN_I,
-                      -GAIN_I};
-uint32_t qpskQ[2] = { GAIN_Q,
-                      -GAIN_Q};
+                    -GAIN_I};
+int32_t qpskQ[2] = { GAIN_Q,
+                    -GAIN_Q};
 
-uint32_t psk8I[8] = {  GAIN_I * 1.00,   // 000 -> 0°
-                       GAIN_I * 0.71,   // 001 -> 45°
-                      -GAIN_I * 0.71,   // 010 -> 135°
-                       GAIN_I * 0.00,   // 011 -> 90°
-                       GAIN_I * 0.71,   // 100 -> 315°
-                      -GAIN_I * 0.00,   // 101 -> 270°
-                      -GAIN_I * 1.00,   // 110 -> 180°
-                      -GAIN_I * 0.71 }; // 111 -> 225°
+int32_t psk8I[8] = {  GAIN_I * 1.00,   // 000 -> 0ï¿½
+                      GAIN_I * 0.71,   // 001 -> 45ï¿½
+                     -GAIN_I * 0.71,   // 010 -> 135ï¿½
+                      GAIN_I * 0.00,   // 011 -> 90ï¿½
+                      GAIN_I * 0.71,   // 100 -> 315ï¿½
+                     -GAIN_I * 0.00,   // 101 -> 270ï¿½
+                     -GAIN_I * 1.00,   // 110 -> 180ï¿½
+                     -GAIN_I * 0.71 }; // 111 -> 225ï¿½
 
-uint32_t psk8Q[8] = {  GAIN_Q * 0.00,   // 000 -> 0°
-                       GAIN_Q * 0.71,   // 001 -> 45°
-                       GAIN_Q * 0.71,   // 010 -> 135°
-                       GAIN_Q * 1.00,   // 011 -> 90°
-                      -GAIN_Q * 0.71,   // 100 -> 315°
-                      -GAIN_Q * 1.00,   // 101 -> 270°
-                      -GAIN_Q * 0.00,   // 110 -> 180°
-                      -GAIN_Q * 0.71 }; // 111 -> 225°
+int32_t psk8Q[8] = {  GAIN_Q * 0.00,   // 000 -> 0ï¿½
+                      GAIN_Q * 0.71,   // 001 -> 45ï¿½
+                      GAIN_Q * 0.71,   // 010 -> 135ï¿½
+                      GAIN_Q * 1.00,   // 011 -> 90ï¿½
+                     -GAIN_Q * 0.71,   // 100 -> 315ï¿½
+                     -GAIN_Q * 1.00,   // 101 -> 270ï¿½
+                     -GAIN_Q * 0.00,   // 110 -> 180ï¿½
+                     -GAIN_Q * 0.71 }; // 111 -> 225ï¿½
 
 int32_t qam16I[4] = { -GAIN_I,
                       -GAIN_I/3,
@@ -132,34 +134,163 @@ uint16_t voltsToRAW(uint32_t V, uint32_t gain, uint32_t offset)
 
 void modulate()
 {
-    int i;
     switch(mode_i)
     {
         case OOK:
-            for (i = 0; i < 9; i++)
+        {
+            uint32_t byte_index = 0;
+            uint32_t bit_index = 0;
+            uint32_t b = 0;
+            for (byte_index = 0; byte_index < encoding_patterns_len; ++byte_index)
             {
-                mod_patterni[i] = ookI[(encoding_pattern >> i) && 0b1];
+                for (b = 0; b < 8; ++b)
+                {
+                    if (bit_index >= encoding_total_bits) break;
+                    uint8_t bit = (encoding_patterns[byte_index] >> b) & 0x1;
+                    int32_t v = ookI[bit];
+                    int32_t r = v + OFFSET_I;
+                    if (r < 0) r = 0; else if (r > 4095) r = 4095;
+                    mod_patterni[bit_index++] = (uint32_t)r;
+                }
             }
+        }
             break;
         case BPSK:
-            for (i = 0; i < 9; i++)
+        {
+            uint32_t byte_index = 0;
+            uint32_t bit_index = 0;
+            uint32_t b = 0;
+            for (byte_index = 0; byte_index < encoding_patterns_len; ++byte_index)
             {
-                mod_patterni[i] = bpskI[(encoding_pattern >> i) & 0b1];
-                //mod_patterni[i] = bpskI[0];
+                for (b = 0; b < 8; ++b)
+                {
+                    if (bit_index >= encoding_total_bits) break;
+                    uint8_t bit = (encoding_patterns[byte_index] >> b) & 0x1;
+                    int32_t v = bpskI[bit];
+                    int32_t r = v + OFFSET_I;
+                    if (r < 0) r = 0; else if (r > 4095) r = 4095;
+                    mod_patterni[bit_index++] = (uint32_t)r;
+                }
             }
+        }
             break;
 
         case QPSK:
+        {
+            uint32_t symbol_index = 0;
+            uint32_t bit_pos = 0;
+
+            uint32_t byte_index = 0;
+            uint32_t b = 0;
+            /* iterate through bits two at a time (LSB-first within each byte) */
+            for (byte_index = 0; byte_index < encoding_patterns_len; ++byte_index)
+            {
+                for (b = 0; b < 8; b += 2)
+                {
+                    /* check availability of first bit */
+                    uint8_t bit0 = (encoding_patterns[byte_index] >> b) & 0x1;
+                    /* second bit may be in same byte or next byte if b==7 (handled by next loop iterations)
+                       but since we iterate in steps of 2 within each byte, we only need to check bounds */
+                    uint8_t bit1 = 0;
+                    if (b + 1 < 8)
+                    {
+                        bit1 = (encoding_patterns[byte_index] >> (b + 1)) & 0x1;
+                    }
+
+                    /* map bits to I/Q levels: bit 0 -> I index, bit1 -> Q index */
+                    int32_t vi = qpskI[bit0];
+                    int32_t vq = qpskQ[bit1];
+
+                    int32_t ri = vi + OFFSET_I;
+                    int32_t rq = vq + OFFSET_Q;
+                    if (ri < 0) ri = 0; else if (ri > 4095) ri = 4095;
+                    if (rq < 0) rq = 0; else if (rq > 4095) rq = 4095;
+
+                    mod_patterni[symbol_index] = (uint32_t)ri;
+                    mod_patternq[symbol_index] = (uint32_t)rq;
+                    symbol_index++;
+
+                    bit_pos += 2;
+                    if (bit_pos >= encoding_total_bits) break;
+                }
+                if (bit_pos >= encoding_total_bits) break;
+            }
+        }
             break;
 
         case PSK8:
+        {
+            uint32_t symbol_index = 0;
+            uint32_t bit_pos = 0;
+
+            /* consume 3 bits per PSK8 symbol (LSB-first across bytes) */
+            while ((bit_pos + 3) <= encoding_total_bits)
+            {
+                uint32_t val = 0;
+                uint32_t k = 0;
+                for (k = 0; k < 3; ++k)
+                {
+                    uint32_t pos = bit_pos + k;
+                    uint8_t byte = (uint8_t)encoding_patterns[pos >> 3];
+                    uint32_t bitin = pos & 7;
+                    val |= (((byte >> bitin) & 0x1) << k);
+                }
+
+                int32_t vi = psk8I[val];
+                int32_t vq = psk8Q[val];
+
+                int32_t ri = vi + OFFSET_I;
+                int32_t rq = vq + OFFSET_Q;
+                if (ri < 0) ri = 0; else if (ri > 4095) ri = 4095;
+                if (rq < 0) rq = 0; else if (rq > 4095) rq = 4095;
+
+                mod_patterni[symbol_index] = (uint32_t)ri;
+                mod_patternq[symbol_index] = (uint32_t)rq;
+                symbol_index++;
+
+                bit_pos += 3;
+            }
+        }
             break;
 
         case QUAM16:
         {
+            uint32_t symbol_index = 0;
+            uint32_t bit_pos = 0;
 
-            break;
+            /* consume 4 bits per 16-QAM symbol (LSB-first across bytes)
+               lower 2 bits -> I index, upper 2 bits -> Q index */
+            while ((bit_pos + 4) <= encoding_total_bits)
+            {
+                uint32_t val = 0;
+                uint32_t k = 0;
+                for (k = 0; k < 4; ++k)
+                {
+                    uint32_t pos = bit_pos + k;
+                    uint8_t byte = (uint8_t)encoding_patterns[pos >> 3];
+                    uint32_t bitin = pos & 7;
+                    val |= (((byte >> bitin) & 0x1) << k);
+                }
+
+                uint32_t i_idx = val & 0x3;
+                uint32_t q_idx = (val >> 2) & 0x3;
+
+                int32_t vi = qam16I[i_idx];
+                int32_t vq = qam16Q[q_idx];
+
+                int32_t ri = vi + OFFSET_I;
+                int32_t rq = vq + OFFSET_Q;
+                if (ri < 0) ri = 0; else if (ri > 4095) ri = 4095;
+                if (rq < 0) rq = 0; else if (rq > 4095) rq = 4095;
+
+                mod_patterni[symbol_index] = (uint32_t)ri;
+                mod_patternq[symbol_index] = (uint32_t)rq;
+                symbol_index++;
+
+                bit_pos += 4;
+            }
         }
+            break;
 
         default:
 
@@ -192,8 +323,19 @@ void writeDACISR()
             break;
         case OOK:
             codeI = mod_patterni[pattern_index];
+            break;
         case BPSK:
             codeI = mod_patterni[pattern_index];
+            break;
+        case QPSK:
+            codeI = mod_patterni[pattern_index];
+            break;
+        case PSK8:
+            codeI = mod_patterni[pattern_index];
+            break;
+        case QUAM16:
+            codeI = mod_patterni[pattern_index];
+            break;
         default: break;
     }
 
@@ -214,6 +356,15 @@ void writeDACISR()
         case TONE:
             codeQ = LUTq[phase_accq >> 20];
             break;
+        case QPSK:
+            codeQ = mod_patternq[pattern_index];
+            break;
+        case PSK8:
+            codeQ = mod_patternq[pattern_index];
+            break;
+        case QUAM16:
+            codeQ = mod_patternq[pattern_index];
+            break;
     }
 
     // advance phase once per sample
@@ -225,9 +376,29 @@ void writeDACISR()
     {
         phase_accq += delta_phaseq; 
     }
-    if (mode_i == OOK || mode_i == BPSK)
+    if (mode_i == OOK || mode_i == BPSK || mode_i == QPSK || mode_i == PSK8 || mode_i == QUAM16)
+    {
         pattern_index++;
-    if (pattern_index > 9) pattern_index = 0;
+    }
+
+    /* wrap pattern_index according to the active modulation symbol count */
+    uint32_t wrap_limit;
+    switch (mode_i)
+    {
+        case OOK:
+        case BPSK:
+            wrap_limit = encoding_total_bits; break; /* 1 bit per symbol */
+        case QPSK:
+            wrap_limit = encoding_total_bits / 2; break; /* 2 bits per symbol */
+        case PSK8:
+            wrap_limit = encoding_total_bits / 3; break; /* 3 bits per symbol */
+        case QUAM16:
+            wrap_limit = encoding_total_bits / 4; break; /* 4 bits per symbol */
+        default:
+            wrap_limit = encoding_total_bits; break;
+    }
+
+    if (pattern_index >= wrap_limit) pattern_index = 0;
 
     // write to DAC
     writeSpi1Data(makeFrameI(codeI));

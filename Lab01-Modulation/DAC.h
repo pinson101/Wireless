@@ -45,6 +45,7 @@ extern volatile uint32_t amplitude_i, amplitude_q;   // millivolts
 extern volatile uint32_t phase_acci, phase_accq; // LUT indices 0..255
 extern volatile uint32_t delta_phasei, delta_phaseq;         // step per sample (0..255)
 extern volatile uint16_t codeI, codeQ;      // final DAC codes to write (0..4095)
+extern volatile uint32_t sampling_freq;     // Hz
 
 
 #define LUT_SIZE 4096
@@ -58,7 +59,7 @@ void makeLUT(uint32_t amp);
 uint16_t makeFrameI(uint16_t code12);
 uint16_t makeFrameQ(uint16_t code12);
 uint16_t voltsToRAW(uint32_t V, uint32_t gain, uint32_t offset);
-void setFreq(uint32_t freq);
+void modulate();
 void writeDACISR();
 void initTimer1();
 
