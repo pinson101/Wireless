@@ -229,19 +229,41 @@ int main(void)
         {
             char* modulation_mode = getFieldString(&data, 1);
 
-            if(str_compare(modulation_mode, "ook") == 0) mode_i = OOK;
-            else if(str_compare(modulation_mode, "bpsk") == 0) mode_i = BPSK;
+            if(str_compare(modulation_mode, "ook") == 0) 
+            {
+                mode_i = OOK;
+                putsUart0("\e[0;36mMODULATOR SET\r\n");
+            }
+            else if(str_compare(modulation_mode, "bpsk") == 0) 
+            {
+                mode_i = BPSK;
+                putsUart0("\e[0;36mMODULATOR SET\r\n");
+            }
             else if(str_compare(modulation_mode, "qpsk") == 0)
             {
                 mode_i = QPSK;
                 mode_q = QPSK;
+                putsUart0("\e[0;36mMODULATOR SET\r\n");
             }
-            else if(str_compare(modulation_mode, "8psk") == 0) {mode_i = PSK8; mode_q = PSK8;}
-            else if(str_compare(modulation_mode, "16qam") == 0) {mode_i = QAM16; mode_q = QAM16;}
-            else putsUart0("invalid");
+            else if(str_compare(modulation_mode, "8psk") == 0) 
+            {
+                mode_i = PSK8; mode_q = PSK8;
+                putsUart0("\e[0;36mMODULATOR SET\r\n");
+            }
+
+            else if(str_compare(modulation_mode, "16qam") == 0) 
+            {
+                mode_i = QAM16; mode_q = QAM16;
+                putsUart0("\e[0;36mMODULATOR SET\r\n");
+            }
+            else
+            {
+                putsUart0("\r\e[0;91mInvalid modulation mode: ");
+                putsUart0(modulation_mode);
+                putsUart0("\e[0m\n");
+            }
 
             modulate();
-            putsUart0("\e[0;36mMODULATOR SET\r\n");
         }
 
         // Command to set sampling frequency 
@@ -254,11 +276,26 @@ int main(void)
             putsUart0("\e[0;36mSampling frequency set\r\n");
         }
 
-        // Command to turn on filtering
-        else if (isCommand(&data, "filter", 0))
+        // Command to toggle filtering
+        else if (isCommand(&data, "filter", 1))
         {
-            filter_enabled = 1;
-            putsUart0("\e[0;36mFilter enabled\r\n");
+            char* enable =  getFieldString(&data, 1);
+            if (str_compare(enable, "on") == 0) filter_enabled = 1;
+            else if (str_compare(enable, "off") == 0) filter_enabled = 0;
+            else
+            {
+                putsUart0("\r\e[0;91mInvalid filter specifier: ");
+                putsUart0(enable);
+                putsUart0("\e[0m\n");
+            }
+            if (filter_enabled)
+            {
+                putsUart0("\e[0;36mFilter enabled\r\n");
+            }
+            else
+            {
+                putsUart0("\e[0;36mFilter disabled\r\n");
+            }
         }
 
         // Command to show help message
@@ -281,6 +318,8 @@ int main(void)
                       "    \e[0m- Set modulation mode (OOK, BPSK, QPSK, 8PSK, 16QAM)\r\n");
             putsUart0("  \e[0;36mfs [f] \r\n"
                       "    \e[0m- Set sampling frequency to f (Hz)\r\n");
+            putsUart0("  \e[0;36mfilter [on/off] \r\n"
+                      "    \e[0m- Enable or disable RRC filter\r\n");
             putsUart0("  \e[0;36mhelp \r\n"
                       "    \e[0m- Show this help message\r\n");
         }

@@ -1,12 +1,5 @@
-// Shell functions
-// J Losh
-
-//-----------------------------------------------------------------------------
-// Hardware Target
-//-----------------------------------------------------------------------------
-
 // Target uC:       TM4C123GH6PM
-// System Clock:    40 MHz
+// System Clock:    80 MHz
 
 //-----------------------------------------------------------------------------
 // Device includes, defines, and assembler directives
@@ -33,20 +26,28 @@ static uint16_t LUTq[LUT_SIZE];
 /* calibration parameters for DAC output voltage (macros) */
 #define OFFSET_I 2104  /* measured DAC code that maps to 0V after op-amp */
 #define OFFSET_Q 2104
-#define GAIN_I   1991  /* counts corresponding to +0.5V from offset (calibrate) */
+#define GAIN_I   1991  /* counts corresponding to +0.5V from offset */
 #define GAIN_Q   1991
+#define H_GAIN   65536 /* gain of 1.0 in Q16 fixed-point format (for filtering) */
+#define NTAPS    31    /* number of filter taps for pulse shaping */
+#define SPS      4     /* samples per symbol */
 
 char encoding_patterns[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-const uint32_t encoding_patterns_len = sizeof(encoding_patterns) / sizeof(encoding_patterns[0]);
-const uint32_t encoding_total_bits = encoding_patterns_len * 8;
+const uint32_t encoding_patterns_len = sizeof(encoding_patterns) - 1;
+const uint32_t encoding_total_bits   = encoding_patterns_len * 8;
 uint32_t pattern_index = 0;
-uint32_t mod_patterni[416];
-uint32_t mod_patternq[416];
+int32_t mod_patterni[424];
+int32_t mod_patternq[424];
+
 
 // filtering stuff
-uint32_t filter_bufferi[31];
-uint32_t filter_bufferq[31];
+int32_t filter_bufferi[31];
+int32_t filter_bufferq[31];
+static uint8_t pattern_phase = 0;
+volatile uint32_t num_symbols = 0;
 
+
+// modulation patterns
 int32_t ookI[2] = { 0,
                     GAIN_I};
 int32_t ookQ[2] = { 0,
@@ -62,23 +63,23 @@ int32_t qpskI[2] = { GAIN_I,
 int32_t qpskQ[2] = { GAIN_Q,
                     -GAIN_Q};
 
-int32_t psk8I[8] = {  GAIN_I * 1.00,   // 000 -> 0�
-                      GAIN_I * 0.71,   // 001 -> 45�
-                     -GAIN_I * 0.71,   // 010 -> 135�
-                      GAIN_I * 0.00,   // 011 -> 90�
-                      GAIN_I * 0.71,   // 100 -> 315�
-                     -GAIN_I * 0.00,   // 101 -> 270�
-                     -GAIN_I * 1.00,   // 110 -> 180�
-                     -GAIN_I * 0.71 }; // 111 -> 225�
+int32_t psk8I[8] = {  GAIN_I * 1.00,   // 000 -> 0
+                      GAIN_I * 0.71,   // 001 -> 45
+                     -GAIN_I * 0.71,   // 010 -> 135
+                      GAIN_I * 0.00,   // 011 -> 90
+                      GAIN_I * 0.71,   // 100 -> 315
+                     -GAIN_I * 0.00,   // 101 -> 270
+                     -GAIN_I * 1.00,   // 110 -> 180
+                     -GAIN_I * 0.71 }; // 111 -> 225
 
-int32_t psk8Q[8] = {  GAIN_Q * 0.00,   // 000 -> 0�
-                      GAIN_Q * 0.71,   // 001 -> 45�
-                      GAIN_Q * 0.71,   // 010 -> 135�
-                      GAIN_Q * 1.00,   // 011 -> 90�
-                     -GAIN_Q * 0.71,   // 100 -> 315�
-                     -GAIN_Q * 1.00,   // 101 -> 270�
-                     -GAIN_Q * 0.00,   // 110 -> 180�
-                     -GAIN_Q * 0.71 }; // 111 -> 225�
+int32_t psk8Q[8] = {  GAIN_Q * 0.00,   // 000 -> 0
+                      GAIN_Q * 0.71,   // 001 -> 45
+                      GAIN_Q * 0.71,   // 010 -> 135
+                      GAIN_Q * 1.00,   // 011 -> 90
+                     -GAIN_Q * 0.71,   // 100 -> 315
+                     -GAIN_Q * 1.00,   // 101 -> 270
+                     -GAIN_Q * 0.00,   // 110 -> 180
+                     -GAIN_Q * 0.71 }; // 111 -> 225
 
 int32_t qam16I[4] = { -GAIN_I,
                       -GAIN_I/3,
@@ -90,10 +91,40 @@ int32_t qam16Q[4] = { -GAIN_Q,
                        GAIN_Q/3,
                        GAIN_Q };
 
-int32_t hrrc[] = {0.0023, -0.0043, -0.0102, -0.0090, 0.0015, 0.0159, 0.0230, 0.0130,
--0.0136, -0.0422, -0.0493, -0.0160, 0.0593, 0.1553, 0.2357, 0.2671,
-0.2357, 0.1553, 0.0593, -0.0160, -0.0493, -0.0422, -0.0136, 0.0130,
-0.0230, 0.0159, 0.0015, -0.0090, -0.0102, -0.0043, 0.0023};
+int32_t hrrc[] = {
+                    0.0023 * H_GAIN,
+                   -0.0043 * H_GAIN,
+                   -0.0102 * H_GAIN,
+                   -0.0090 * H_GAIN,
+                    0.0015 * H_GAIN,
+                    0.0159 * H_GAIN,
+                    0.0230 * H_GAIN,
+                    0.0130 * H_GAIN,
+                   -0.0136 * H_GAIN,
+                   -0.0422 * H_GAIN,
+                   -0.0493 * H_GAIN,
+                   -0.0160 * H_GAIN,
+                    0.0593 * H_GAIN,
+                    0.1553 * H_GAIN,
+                    0.2357 * H_GAIN,
+                    0.2671 * H_GAIN,
+                    0.2357 * H_GAIN,
+                    0.1553 * H_GAIN,
+                    0.0593 * H_GAIN,
+                   -0.0160 * H_GAIN,
+                   -0.0493 * H_GAIN,
+                   -0.0422 * H_GAIN,
+                   -0.0136 * H_GAIN,
+                    0.0130 * H_GAIN,
+                    0.0230 * H_GAIN,
+                    0.0159 * H_GAIN,
+                    0.0015 * H_GAIN,
+                   -0.0090 * H_GAIN,
+                   -0.0102 * H_GAIN,
+                   -0.0043 * H_GAIN,
+                    0.0023 * H_GAIN
+                 };
+
 
 //-----------------------------------------------------------------------------
 // Subroutines
@@ -141,315 +172,276 @@ uint16_t voltsToRAW(uint32_t V, uint32_t gain, uint32_t offset)
     return (uint16_t)R;
 }
 
-void modulate()
+static inline uint8_t getBit(uint32_t bit_pos)
 {
-    switch(mode_i)
+    // LSB-first across bytes
+    uint8_t byte = (uint8_t)encoding_patterns[bit_pos >> 3];
+    return (byte >> (bit_pos & 7)) & 1U;
+}
+
+static inline uint16_t sat12_from_baseband(int32_t bb, int32_t offset)
+{
+    int32_t r = bb + offset;
+    if (r < 0) r = 0;
+    else if (r > 4095) r = 4095;
+    return (uint16_t)r;
+}
+
+static inline int isModMode(uint32_t m)
+{
+    return (m == OOK || m == BPSK || m == QPSK || m == PSK8 || m == QAM16);
+}
+
+void modulate(void)
+{
+    uint32_t bit_pos = 0;
+    uint32_t sym = 0;
+
+    // reset indices / filter state when (re)building pattern
+    pattern_index  = 0;
+    pattern_phase  = 0;
+    int i;
+    for (i = 0; i < NTAPS; i++)
+    {
+        filter_bufferi[i] = 0;
+        filter_bufferq[i] = 0;
+    }
+
+    switch (mode_i)
     {
         case OOK:
         {
-            uint32_t byte_index = 0;
-            uint32_t bit_index = 0;
-            uint32_t b = 0;
-            for (byte_index = 0; byte_index < encoding_patterns_len; ++byte_index)
+            // 1 bit per symbol, Q=0
+            for (bit_pos = 0; bit_pos < encoding_total_bits && sym < 424; bit_pos++, sym++)
             {
-                for (b = 0; b < 8; ++b)
-                {
-                    if (bit_index >= encoding_total_bits) break;
-                    uint8_t bit = (encoding_patterns[byte_index] >> b) & 0x1;
-                    int32_t v = ookI[bit];
-                    int32_t r = v + OFFSET_I;
-                    if (r < 0) r = 0; else if (r > 4095) r = 4095;
-                    mod_patterni[bit_index++] = (uint32_t)r;
-                }
+                uint8_t b = getBit(bit_pos);
+                mod_patterni[sym] = ookI[b];
+                mod_patternq[sym] = 0;
             }
+            num_symbols = sym;
         }
-            break;
+        break;
+
         case BPSK:
         {
-            uint32_t byte_index = 0;
-            uint32_t bit_index = 0;
-            uint32_t b = 0;
-            for (byte_index = 0; byte_index < encoding_patterns_len; ++byte_index)
+            // 1 bit per symbol, Q=0
+            for (bit_pos = 0; bit_pos < encoding_total_bits && sym < 424; bit_pos++, sym++)
             {
-                for (b = 0; b < 8; ++b)
-                {
-                    if (bit_index >= encoding_total_bits) break;
-                    uint8_t bit = (encoding_patterns[byte_index] >> b) & 0x1;
-                    int32_t v = bpskI[bit];
-                    int32_t r = v + OFFSET_I;
-                    if (r < 0) r = 0; else if (r > 4095) r = 4095;
-                    mod_patterni[bit_index++] = (uint32_t)r;
-                }
+                uint8_t b = getBit(bit_pos);
+                mod_patterni[sym] = bpskI[b];
+                mod_patternq[sym] = 0;
             }
+            num_symbols = sym;
         }
-            break;
+        break;
 
         case QPSK:
         {
-            uint32_t symbol_index = 0;
-            uint32_t bit_pos = 0;
-
-            uint32_t byte_index = 0;
-            uint32_t b = 0;
-            /* iterate through bits two at a time (LSB-first within each byte) */
-            for (byte_index = 0; byte_index < encoding_patterns_len; ++byte_index)
+            // 2 bits per symbol: bit0->I sign, bit1->Q sign (LSB-first stream)
+            while ((bit_pos + 1) < encoding_total_bits && sym < 424)
             {
-                for (b = 0; b < 8; b += 2)
-                {
-                    /* check availability of first bit */
-                    uint8_t bit0 = (encoding_patterns[byte_index] >> b) & 0x1;
-                    /* second bit may be in same byte or next byte if b==7 (handled by next loop iterations)
-                       but since we iterate in steps of 2 within each byte, we only need to check bounds */
-                    uint8_t bit1 = 0;
-                    if (b + 1 < 8)
-                    {
-                        bit1 = (encoding_patterns[byte_index] >> (b + 1)) & 0x1;
-                    }
+                uint8_t b0 = getBit(bit_pos + 0);
+                uint8_t b1 = getBit(bit_pos + 1);
 
-                    /* map bits to I/Q levels: bit 0 -> I index, bit1 -> Q index */
-                    int32_t vi = qpskI[bit0];
-                    int32_t vq = qpskQ[bit1];
+                mod_patterni[sym] = qpskI[b0];
+                mod_patternq[sym] = qpskQ[b1];
 
-                    int32_t ri = vi + OFFSET_I;
-                    int32_t rq = vq + OFFSET_Q;
-                    if (ri < 0) ri = 0; else if (ri > 4095) ri = 4095;
-                    if (rq < 0) rq = 0; else if (rq > 4095) rq = 4095;
-
-                    mod_patterni[symbol_index] = (uint32_t)ri;
-                    mod_patternq[symbol_index] = (uint32_t)rq;
-                    symbol_index++;
-
-                    bit_pos += 2;
-                    if (bit_pos >= encoding_total_bits) break;
-                }
-                if (bit_pos >= encoding_total_bits) break;
+                sym++;
+                bit_pos += 2;
             }
+            num_symbols = sym;
         }
-            break;
+        break;
 
         case PSK8:
         {
-            uint32_t symbol_index = 0;
-            uint32_t bit_pos = 0;
-
-            /* consume 3 bits per PSK8 symbol (LSB-first across bytes) */
-            while ((bit_pos + 3) <= encoding_total_bits)
+            // 3 bits per symbol -> 0..7
+            while ((bit_pos + 2) < encoding_total_bits && sym < 424)
             {
-                uint32_t val = 0;
-                uint32_t k = 0;
-                for (k = 0; k < 3; ++k)
-                {
-                    uint32_t pos = bit_pos + k;
-                    uint8_t byte = (uint8_t)encoding_patterns[pos >> 3];
-                    uint32_t bitin = pos & 7;
-                    val |= (((byte >> bitin) & 0x1) << k);
-                }
+                uint32_t v =
+                    ((uint32_t)getBit(bit_pos + 0) << 0) |
+                    ((uint32_t)getBit(bit_pos + 1) << 1) |
+                    ((uint32_t)getBit(bit_pos + 2) << 2);
 
-                int32_t vi = psk8I[val];
-                int32_t vq = psk8Q[val];
+                mod_patterni[sym] = psk8I[v];
+                mod_patternq[sym] = psk8Q[v];
 
-                int32_t ri = vi + OFFSET_I;
-                int32_t rq = vq + OFFSET_Q;
-                if (ri < 0) ri = 0; else if (ri > 4095) ri = 4095;
-                if (rq < 0) rq = 0; else if (rq > 4095) rq = 4095;
-
-                mod_patterni[symbol_index] = (uint32_t)ri;
-                mod_patternq[symbol_index] = (uint32_t)rq;
-                symbol_index++;
-
+                sym++;
                 bit_pos += 3;
             }
+            num_symbols = sym;
         }
-            break;
+        break;
 
         case QAM16:
         {
-            uint32_t symbol_index = 0;
-            uint32_t bit_pos = 0;
-
-            /* consume 4 bits per 16-QAM symbol (LSB-first across bytes)
-               lower 2 bits -> I index, upper 2 bits -> Q index */
-            while ((bit_pos + 4) <= encoding_total_bits)
+            // 4 bits per symbol -> lower2=I index, upper2=Q index
+            while ((bit_pos + 3) < encoding_total_bits && sym < 424)
             {
-                uint32_t val = 0;
-                uint32_t k = 0;
-                for (k = 0; k < 4; ++k)
-                {
-                    uint32_t pos = bit_pos + k;
-                    uint8_t byte = (uint8_t)encoding_patterns[pos >> 3];
-                    uint32_t bitin = pos & 7;
-                    val |= (((byte >> bitin) & 0x1) << k);
-                }
+                uint32_t v =
+                    ((uint32_t)getBit(bit_pos + 0) << 0) |
+                    ((uint32_t)getBit(bit_pos + 1) << 1) |
+                    ((uint32_t)getBit(bit_pos + 2) << 2) |
+                    ((uint32_t)getBit(bit_pos + 3) << 3);
 
-                uint32_t i_idx = val & 0x3;
-                uint32_t q_idx = (val >> 2) & 0x3;
+                uint32_t i_idx = (v >> 0) & 0x3;
+                uint32_t q_idx = (v >> 2) & 0x3;
 
-                int32_t vi = qam16I[i_idx];
-                int32_t vq = qam16Q[q_idx];
+                mod_patterni[sym] = qam16I[i_idx];
+                mod_patternq[sym] = qam16Q[q_idx];
 
-                int32_t ri = vi + OFFSET_I;
-                int32_t rq = vq + OFFSET_Q;
-                if (ri < 0) ri = 0; else if (ri > 4095) ri = 4095;
-                if (rq < 0) rq = 0; else if (rq > 4095) rq = 4095;
-
-                mod_patterni[symbol_index] = (uint32_t)ri;
-                mod_patternq[symbol_index] = (uint32_t)rq;
-                symbol_index++;
-
+                sym++;
                 bit_pos += 4;
             }
+            num_symbols = sym;
         }
-            break;
+        break;
 
         default:
-
-            break;
+            num_symbols = 0;
+        break;
     }
 }
 
+int32_t clamp12(int32_t v)
+{
+    if (v < OFFSET_I - GAIN_I) return OFFSET_I - GAIN_I;
+    else if (v > OFFSET_I + GAIN_I) return OFFSET_I + GAIN_I;
+    return v;
+}
+
 // the ISR writes each sample of the signal (depends on sampling frequency)
-void writeDACISR()
+void writeDACISR(void)
 {
     setPinValue(LDAC, 0);
     setPinValue(LDAC, 1);
 
-    switch(mode_i)
-    {
-        case OFF:
-            codeI = OFFSET_I;
-            break;
-        case RAW:
-            codeI = raw_i; // raw value from shell
-            break;
-        case DC:
-            codeI = voltsToRAW(amplitude_i, GAIN_I, OFFSET_I);
-            break;
-        case SINE:
-            codeI = LUTi[phase_acci >> 20];
-            break;
-        case TONE:
-            codeI = LUTi[phase_acci >> 20];
-            break;
-        case OOK:
-        case BPSK:
-        case QPSK:
-        case PSK8:
-        case QAM16:
-            if (filter_enabled == 0)
-                codeI = mod_patterni[pattern_index];
-            else
-            {
-                // 1 populate the buffer 
-                // 2 multiply the buffer by the table 
-                // 3 sum them up 
-                // 4 multiply by 4 
-                // 5 add value to offset 
-                // 6 write to DAC
-                int i = 0;
-                // while (i < 31*4)
-                // {
-                //     // [... symbol, 0, 0, 0 ...]
-                //     filter_bufferi[i+3] =   mod_patterni[pattern_index + (i/4)] * hrrc[i/4];
-                //     filter_buffer[i] = 0;   filter_buffer[i+1] = 0; filter_buffer[i+2] = 0; 
-                //     i+=4;
-                // }
-                // array of 0s
-                // shift array
-                // if it can accept another symbol
-                if(filter_bufferi[0] == 0 && filter_bufferi[1] == 0)
-                {
-                    filter_bufferi[0] = mod_patterni[pattern_index]
-                    pattern_index++;
-                }
-                else filter_bufferi[0] = 0;
-                for (i = 1; i < 31; i++)
-                {
-                    filter_bufferi[i] = filter_bufferi[i-1];
-                }
+    // defaults
+    uint16_t outI = OFFSET_I;
+    uint16_t outQ = OFFSET_Q;
 
-                uint31_t filtered_i;
-                // loop through and multiply by coef and add to val
-                for (i = 0; i< 31; i++)
-                {
-                    filtered_i += filter_bufferi[i] * hrrc[i];
-                }
-                codeI= OFFSET_I + (filtered_i * 4);
-
-
-            }
-            break;
-        default: break;
-    }
-
-    switch(mode_q)
-    {
-        case OFF:
-            codeQ = OFFSET_Q;
-            break;
-        case RAW:
-            codeQ = raw_q;
-            break;
-        case DC:
-            codeQ = voltsToRAW(amplitude_q, GAIN_Q, OFFSET_Q);
-            break;
-        case SINE:
-            codeQ = LUTq[phase_accq >> 20];
-            break;
-        case TONE:
-            codeQ = LUTq[phase_accq >> 20];
-            break;
-        case QPSK:
-            codeQ = mod_patternq[pattern_index];
-            break;
-        case PSK8:
-            codeQ = mod_patternq[pattern_index];
-            break;
-        case QAM16:
-            codeQ = mod_patternq[pattern_index];
-            break;
-    }
-
-    // advance phase once per sample
-    if (mode_i == TONE || mode_i == SINE)
-    {
-        phase_acci += delta_phasei;
-    }
-    if (mode_q == TONE || mode_q == SINE)
-    {
-        phase_accq += delta_phaseq; 
-    }
-    if (mode_i == OOK || mode_i == BPSK || mode_i == QPSK || mode_i == PSK8 || mode_i == QAM16)
-    {
-        pattern_index++;
-    }
-
-    /* wrap pattern_index according to the active modulation symbol count */
-    uint32_t wrap_limit;
+    // -------------------------
+    // I channel (non-mod modes)
+    // -------------------------
     switch (mode_i)
     {
-        case OOK:
-        case BPSK:
-            wrap_limit = encoding_total_bits; break; /* 1 bit per symbol */
-        case QPSK:
-            wrap_limit = encoding_total_bits / 2; break; /* 2 bits per symbol */
-        case PSK8:
-            wrap_limit = encoding_total_bits / 3; break; /* 3 bits per symbol */
-        case QAM16:
-            wrap_limit = encoding_total_bits / 4; break; /* 4 bits per symbol */
-        default:
-            wrap_limit = encoding_total_bits; break;
+        case OFF:  outI = OFFSET_I; break;
+        case RAW:  outI = (uint16_t)raw_i; break;
+        case DC:   outI = voltsToRAW(amplitude_i, GAIN_I, OFFSET_I); break;
+        case SINE: outI = LUTi[phase_acci >> 20]; break;
+        case TONE: outI = LUTi[phase_acci >> 20]; break;
+        default:   break; // mod modes handled below
     }
 
-    if (pattern_index >= wrap_limit) pattern_index = 0;
+    // -------------------------
+    // Q channel (non-mod modes)
+    // -------------------------
+    switch (mode_q)
+    {
+        case OFF:  outQ = OFFSET_Q; break;
+        case RAW:  outQ = (uint16_t)raw_q; break;
+        case DC:   outQ = voltsToRAW(amplitude_q, GAIN_Q, OFFSET_Q); break;
+        case SINE: outQ = LUTq[phase_accq >> 20]; break;
+        case TONE: outQ = LUTq[phase_accq >> 20]; break;
+        default:   break; // mod modes handled below
+    }
+
+    // -------------------------
+    // MODULATION PATH (uses shared pattern_index)
+    // -------------------------
+    const int i_mod = isModMode(mode_i);
+    const int q_mod = isModMode(mode_q);
+
+    if ((i_mod || q_mod) && (num_symbols > 0))
+    {
+        if (filter_enabled)
+        {
+            // RRC filtering on I/Q symbol streams
+            int32_t xinI = 0;
+            int32_t xinQ = 0;
+
+            // zero-stuffing: symbol, 0, 0, 0, symbol, 0, 0, 0...
+            if (pattern_phase == 0)
+            {
+                xinI = mod_patterni[pattern_index];
+                xinQ = mod_patternq[pattern_index];
+
+                // advance symbol once, wrap around to beginning of pattern when reaching end
+                pattern_index++;
+                if (pattern_index >= num_symbols) pattern_index = 0;
+            }
+
+            // advance phase of zero-stuffing pattern (0,0,0,1,0,0,0,1,...)
+            pattern_phase++;
+            if (pattern_phase >= SPS) pattern_phase = 0;
+
+            // shift buffer and insert new sample at index 0 - oldest sample is dropped off
+            int j;
+            for (j = NTAPS - 1; j > 0; j--)
+            {
+                filter_bufferi[j] = filter_bufferi[j - 1];
+                filter_bufferq[j] = filter_bufferq[j - 1];
+            }
+            filter_bufferi[0] = xinI;
+            filter_bufferq[0] = xinQ;
+
+            // convolution
+            int64_t sumI = 0;
+            int64_t sumQ = 0;
+            int k;
+            for (k = 0; k < NTAPS; k++)
+            {
+                sumI += (int64_t)filter_bufferi[k] * (int64_t)hrrc[k];
+                sumQ += (int64_t)filter_bufferq[k] * (int64_t)hrrc[k];
+            }
+
+            // divide by H_GAIN
+            // int32_t yI = (int32_t)((sumI + (H_GAIN / 2)) / H_GAIN);
+            // int32_t yQ = (int32_t)((sumQ + (H_GAIN / 2)) / H_GAIN);
+
+            // divide by H_GAIN with bit shift (H_GAIN=65536=2^16)
+            int32_t yI = (int32_t)(sumI >> 16);
+            int32_t yQ = (int32_t)(sumQ >> 16);
+
+            // compensate for zero-stuffing amplitude loss
+            yI *= 4;
+            yQ *= 4;
+
+            // convert to DAC codes
+            outI = sat12_from_baseband(yI, OFFSET_I);
+            outQ = sat12_from_baseband(yQ, OFFSET_Q);
+        }
+        else
+        {
+            // no filter: output one symbol per ISR tick
+            int32_t bbI = 0;
+            int32_t bbQ = 0;
+
+            if (i_mod) bbI = mod_patterni[pattern_index];
+            if (q_mod) bbQ = mod_patternq[pattern_index];
+
+            outI = i_mod ? sat12_from_baseband(bbI, OFFSET_I) : outI;
+            outQ = q_mod ? sat12_from_baseband(bbQ, OFFSET_Q) : outQ;
+
+            // advance ONCE per sample tick (shared for I/Q)
+            pattern_index++;
+            if (pattern_index >= num_symbols) pattern_index = 0;
+        }
+    }
+
+    // -------------------------
+    // phase accumulators for tone/sine
+    // -------------------------
+    if (mode_i == TONE || mode_i == SINE) phase_acci += delta_phasei;
+    if (mode_q == TONE || mode_q == SINE) phase_accq += delta_phaseq;
 
     // write to DAC
-    writeSpi1Data(makeFrameI(codeI));
-    writeSpi1Data(makeFrameQ(codeQ));
+    writeSpi1Data(makeFrameI(outI));
+    writeSpi1Data(makeFrameQ(outQ));
 
     // clear the timer interrupt
     TIMER1_ICR_R = TIMER_ICR_TATOCINT;
 }
-
 void initTimer1()
 {
     // 1) Enable clock
