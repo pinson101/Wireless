@@ -28,6 +28,9 @@ volatile uint32_t delta_phasei = 1, delta_phaseq = 1; // default step
 volatile uint16_t codeI = 0, codeQ = 0;
 volatile uint32_t sampling_freq = 100000; // default sampling frequency (100 KHz)
 volatile uint8_t filter_enabled = 0;
+volatile uint8_t clip_enabled = 0;
+volatile uint32_t clip_level = 0;
+
 //-----------------------------------------------------------------------------
 // Subroutines
 //-----------------------------------------------------------------------------
@@ -298,6 +301,28 @@ int main(void)
             }
         }
 
+        // Command to clip sine wave (lab 2)
+        else if (isCommand(&data, "clip", 1) || isCommand(&data, "clip", 2))
+        {
+            char* enable =  getFieldString(&data, 1);
+            clip_level = data.fieldCount == 3 ? getFieldInteger(&data, 2) : 0;
+
+            if (str_compare(enable, "on") == 0) clip_enabled = 1;
+
+            else if (str_compare(enable, "off") == 0) clip_enabled = 0;
+            
+            else
+            {
+                putsUart0("\r\e[0;91mInvalid clip specifier: ");
+                putsUart0(enable);
+                putsUart0("\e[0m\n\r");
+            }
+            
+            makeLUT(1000); // regenerate LUT with clipping applied
+
+            putsUart0("\e[0;36mI/Q channels clipped\r\n");
+        }
+
         // Command to show help message
         else if (isCommand(&data, "help", 0))
         {
@@ -320,6 +345,8 @@ int main(void)
                       "    \e[0m- Set sampling frequency to f (Hz)\r\n");
             putsUart0("  \e[0;36mfilter [on/off] \r\n"
                       "    \e[0m- Enable or disable RRC filter\r\n");
+            putsUart0("  \e[0;36mclip [level] \r\n"
+                      "    \e[0m- Clip I/Q channels at specified level (mV)\r\n");
             putsUart0("  \e[0;36mhelp \r\n"
                       "    \e[0m- Show this help message\r\n");
         }

@@ -47,6 +47,8 @@ extern volatile uint32_t delta_phasei, delta_phaseq;         // step per sample 
 extern volatile uint16_t codeI, codeQ;      // final DAC codes to write (0..4095)
 extern volatile uint32_t sampling_freq;     // Hz
 extern volatile uint8_t filter_enabled;    // 0 = no filter, 1 = filter enabled
+extern volatile uint8_t clip_enabled;      // 0 = no clipping, 1 = clipping enabled
+extern volatile uint32_t clip_level;      // clipping level in mV
 
 
 #define LUT_SIZE 4096

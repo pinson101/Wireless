@@ -144,8 +144,33 @@ void makeLUT(uint32_t amplitude)
         int32_t v_i = (int32_t)lround((double)OFFSET_I + a * s * (double)GAIN_I);
         int32_t v_q = (int32_t)lround((double)OFFSET_Q + a * c * (double)GAIN_Q);
 
-        if (v_i < 0) v_i = 0; else if (v_i > 4095) v_i = 4095;
-        if (v_q < 0) v_q = 0; else if (v_q > 4095) v_q = 4095;
+        // clipping if enabled
+        if (clip_enabled)
+        {
+            // clip_level is in mV, convert to DAC code offset from OFFSET_I/Q
+            int32_t min_i = (int32_t)(((int64_t)clip_level * -GAIN_I * 2) / 1000) + OFFSET_I;
+            int32_t min_q = (int32_t)(((int64_t)clip_level * -GAIN_Q * 2) / 1000) + OFFSET_Q;
+
+            int32_t max_i = (int32_t)(((int64_t)clip_level * GAIN_I * 2) / 1000) + OFFSET_I;
+            int32_t max_q = (int32_t)(((int64_t)clip_level * GAIN_Q * 2) / 1000) + OFFSET_Q;
+
+            // DELETE
+            // clip_level is in mV, convert to DAC code offset from OFFSET_I/Q
+//            int32_t min_i = (int32_t)(((int64_t)clip_level * -GAIN_I) / 1000ULL);
+//            int32_t min_q = (int32_t)(((int64_t)clip_level * -GAIN_Q) / 1000ULL);
+//
+//            int32_t max_i = (int32_t)(((int64_t)clip_level * GAIN_I) / 1000ULL);
+//            int32_t max_q = (int32_t)(((int64_t)clip_level * GAIN_Q) / 1000ULL);
+
+            if (v_i < min_i) v_i = min_i;
+            else if (v_i > max_i) v_i = max_i;
+
+            if (v_q < min_q) v_q = min_q;
+            else if (v_q > max_q) v_q = max_q;
+        }
+
+        // if (v_i < 0) v_i = 0; else if (v_i > 4095) v_i = 4095;
+        // if (v_q < 0) v_q = 0; else if (v_q > 4095) v_q = 4095;
 
         LUTi[k] = (uint16_t)v_i;
         LUTq[k] = (uint16_t)v_q;
@@ -166,9 +191,11 @@ uint16_t makeFrameQ(uint16_t code12)
 
 uint16_t voltsToRAW(uint32_t V, uint32_t gain, uint32_t offset)
 {
-    // V in mV; compute offset + (V * gain / 1000) with full precision
-    uint32_t R = offset + (uint32_t)(((uint64_t)V * gain) / 1000ULL);
-    if (R > 4095) R = 4095;
+    // V in mV (signed), gain in counts per 1000mV, offset is DAC code for 0V
+    int32_t v = (int32_t)V;
+    int32_t R = (int32_t)offset + (int32_t)(((int64_t)v * (int64_t)gain) / 1000LL);
+    if (R < 0) R = 0;
+    else if (R > 4095) R = 4095;
     return (uint16_t)R;
 }
 
@@ -303,12 +330,22 @@ void modulate(void)
     }
 }
 
-int32_t clamp12(int32_t v)
-{
-    if (v < OFFSET_I - GAIN_I) return OFFSET_I - GAIN_I;
-    else if (v > OFFSET_I + GAIN_I) return OFFSET_I + GAIN_I;
-    return v;
-}
+//int32_t clip(int32_t v)
+//{
+//
+//        int32_t clip_offset = (int32_t)(((int64_t)clip_level * GAIN_I) / 1000ULL);
+//
+//        if (v < OFFSET_I + GAIN_I - clip_offset)
+//        {
+//            return OFFSET_I + GAIN_I - clip_offset;
+//        }
+//        else if (v > OFFSET_I  + clip_offset)
+//        {
+//            return OFFSET_I + clip_offset;
+//        }
+//
+//        return v;
+//}
 
 // the ISR writes each sample of the signal (depends on sampling frequency)
 void writeDACISR(void)

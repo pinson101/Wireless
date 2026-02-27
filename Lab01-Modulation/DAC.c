@@ -456,9 +456,9 @@ void initTimer1()
     TIMER1_CFG_R = TIMER_CFG_32_BIT_TIMER;      // 32-bit timer mode
     TIMER1_TAMR_R = TIMER_TAMR_TAMR_PERIOD;     // periodic timer (count-down)
 
-    // 5) Set reload value for 10 us period at 80 MHz:
-    //    ticks = clock * period = 80e6 * 10e-6 = 800 -> TAILR = 800 - 1 = 799
-    TIMER1_TAILR_R = 800 - 1;                  // periodic reload value
+    // 5) Set reload value for 30KHz freq at 80 MHz:
+    //    ticks = clock * period = 80e6 / 30e6 = 2666.67 -> TAILR = 2666 - 1 = 2665
+    TIMER1_TAILR_R = 2665;                  // periodic reload value
 
     // 6) Clear any pending timeout
     TIMER1_ICR_R = TIMER_ICR_TATOCINT;
