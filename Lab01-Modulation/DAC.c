@@ -32,9 +32,11 @@ static uint16_t LUTq[LUT_SIZE];
 #define NTAPS    31    /* number of filter taps for pulse shaping */
 #define SPS      4     /* samples per symbol */
 
-char encoding_patterns[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+char encoding_patterns[] = "rtOHrtOHrtOHrtOHrtOHrtOHrtOHrtOH";
 const uint32_t encoding_patterns_len = sizeof(encoding_patterns) - 1;
 const uint32_t encoding_total_bits   = encoding_patterns_len * 8;
+const char preamble[] = "sC";
+const uint32_t preamble_bits = 16;
 uint32_t pattern_index = 0;
 int32_t mod_patterni[424];
 int32_t mod_patternq[424];
@@ -45,6 +47,7 @@ int32_t filter_bufferi[31];
 int32_t filter_bufferq[31];
 static uint8_t pattern_phase = 0;
 volatile uint32_t num_symbols = 0;
+volatile uint8_t transmission_done = 0;
 
 
 // modulation patterns
@@ -179,6 +182,14 @@ static inline uint8_t getBit(uint32_t bit_pos)
     return (byte >> (bit_pos & 7)) & 1U;
 }
 
+static inline uint8_t get_combined_bit(uint32_t bit_pos)
+{
+    if (bit_pos < preamble_bits)
+        return (preamble[bit_pos / 8] >> (bit_pos % 8)) & 1;
+    else
+        return getBit(bit_pos - preamble_bits);
+}
+
 static inline uint16_t sat12_from_baseband(int32_t bb, int32_t offset)
 {
     int32_t r = bb + offset;
@@ -194,12 +205,14 @@ static inline int isModMode(uint32_t m)
 
 void modulate(void)
 {
-    uint32_t bit_pos = 0;
+    uint32_t total_bits = preamble_bits + encoding_total_bits;
     uint32_t sym = 0;
+    uint32_t bit_pos;
 
     // reset indices / filter state when (re)building pattern
     pattern_index  = 0;
     pattern_phase  = 0;
+    transmission_done = 0;
     int i;
     for (i = 0; i < NTAPS; i++)
     {
@@ -212,9 +225,9 @@ void modulate(void)
         case OOK:
         {
             // 1 bit per symbol, Q=0
-            for (bit_pos = 0; bit_pos < encoding_total_bits && sym < 424; bit_pos++, sym++)
+            for (bit_pos = 0; bit_pos < total_bits && sym < 424; bit_pos++, sym++)
             {
-                uint8_t b = getBit(bit_pos);
+                uint8_t b = get_combined_bit(bit_pos);
                 mod_patterni[sym] = ookI[b];
                 mod_patternq[sym] = 0;
             }
@@ -225,9 +238,9 @@ void modulate(void)
         case BPSK:
         {
             // 1 bit per symbol, Q=0
-            for (bit_pos = 0; bit_pos < encoding_total_bits && sym < 424; bit_pos++, sym++)
+            for (bit_pos = 0; bit_pos < total_bits && sym < 424; bit_pos++, sym++)
             {
-                uint8_t b = getBit(bit_pos);
+                uint8_t b = get_combined_bit(bit_pos);
                 mod_patterni[sym] = bpskI[b];
                 mod_patternq[sym] = 0;
             }
@@ -238,10 +251,11 @@ void modulate(void)
         case QPSK:
         {
             // 2 bits per symbol: bit0->I sign, bit1->Q sign (LSB-first stream)
-            while ((bit_pos + 1) < encoding_total_bits && sym < 424)
+            bit_pos = 0;
+            while ((bit_pos + 1) < total_bits && sym < 424)
             {
-                uint8_t b0 = getBit(bit_pos + 0);
-                uint8_t b1 = getBit(bit_pos + 1);
+                uint8_t b0 = get_combined_bit(bit_pos + 0);
+                uint8_t b1 = get_combined_bit(bit_pos + 1);
 
                 mod_patterni[sym] = qpskI[b0];
                 mod_patternq[sym] = qpskQ[b1];
@@ -256,12 +270,13 @@ void modulate(void)
         case PSK8:
         {
             // 3 bits per symbol -> 0..7
-            while ((bit_pos + 2) < encoding_total_bits && sym < 424)
+            bit_pos = 0;
+            while ((bit_pos + 2) < total_bits && sym < 424)
             {
                 uint32_t v =
-                    ((uint32_t)getBit(bit_pos + 0) << 0) |
-                    ((uint32_t)getBit(bit_pos + 1) << 1) |
-                    ((uint32_t)getBit(bit_pos + 2) << 2);
+                    ((uint32_t)get_combined_bit(bit_pos + 0) << 0) |
+                    ((uint32_t)get_combined_bit(bit_pos + 1) << 1) |
+                    ((uint32_t)get_combined_bit(bit_pos + 2) << 2);
 
                 mod_patterni[sym] = psk8I[v];
                 mod_patternq[sym] = psk8Q[v];
@@ -276,13 +291,14 @@ void modulate(void)
         case QAM16:
         {
             // 4 bits per symbol -> lower2=I index, upper2=Q index
-            while ((bit_pos + 3) < encoding_total_bits && sym < 424)
+            bit_pos = 0;
+            while ((bit_pos + 3) < total_bits && sym < 424)
             {
                 uint32_t v =
-                    ((uint32_t)getBit(bit_pos + 0) << 0) |
-                    ((uint32_t)getBit(bit_pos + 1) << 1) |
-                    ((uint32_t)getBit(bit_pos + 2) << 2) |
-                    ((uint32_t)getBit(bit_pos + 3) << 3);
+                    ((uint32_t)get_combined_bit(bit_pos + 0) << 0) |
+                    ((uint32_t)get_combined_bit(bit_pos + 1) << 1) |
+                    ((uint32_t)get_combined_bit(bit_pos + 2) << 2) |
+                    ((uint32_t)get_combined_bit(bit_pos + 3) << 3);
 
                 uint32_t i_idx = (v >> 0) & 0x3;
                 uint32_t q_idx = (v >> 2) & 0x3;
@@ -313,6 +329,7 @@ int32_t clamp12(int32_t v)
 // the ISR writes each sample of the signal (depends on sampling frequency)
 void writeDACISR(void)
 {
+    int j, k;
     setPinValue(LDAC, 0);
     setPinValue(LDAC, 1);
 
@@ -352,7 +369,7 @@ void writeDACISR(void)
     const int i_mod = isModMode(mode_i);
     const int q_mod = isModMode(mode_q);
 
-    if ((i_mod || q_mod) && (num_symbols > 0))
+    if (!transmission_done && (i_mod || q_mod) && (num_symbols > 0))
     {
         if (filter_enabled)
         {
@@ -368,7 +385,11 @@ void writeDACISR(void)
 
                 // advance symbol once, wrap around to beginning of pattern when reaching end
                 pattern_index++;
-                if (pattern_index >= num_symbols) pattern_index = 0;
+                if (pattern_index >= num_symbols) 
+                {
+                    pattern_index = 0;
+                    transmission_done = 1;
+                }
             }
 
             // advance phase of zero-stuffing pattern (0,0,0,1,0,0,0,1,...)
@@ -376,7 +397,6 @@ void writeDACISR(void)
             if (pattern_phase >= SPS) pattern_phase = 0;
 
             // shift buffer and insert new sample at index 0 - oldest sample is dropped off
-            int j;
             for (j = NTAPS - 1; j > 0; j--)
             {
                 filter_bufferi[j] = filter_bufferi[j - 1];
@@ -388,7 +408,6 @@ void writeDACISR(void)
             // convolution
             int64_t sumI = 0;
             int64_t sumQ = 0;
-            int k;
             for (k = 0; k < NTAPS; k++)
             {
                 sumI += (int64_t)filter_bufferi[k] * (int64_t)hrrc[k];
@@ -425,7 +444,11 @@ void writeDACISR(void)
 
             // advance ONCE per sample tick (shared for I/Q)
             pattern_index++;
-            if (pattern_index >= num_symbols) pattern_index = 0;
+            if (pattern_index >= num_symbols) 
+            {
+                pattern_index = 0;
+                transmission_done = 1;
+            }
         }
     }
 
