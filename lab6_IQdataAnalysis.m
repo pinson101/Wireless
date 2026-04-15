@@ -19,10 +19,10 @@ f_offset      = 0;                % LO frequency offset in Hz
 % DEPENDS ON HOW WE DO PREAMBLE, we could use xcorr() like WiFi
 
 % Preamble bit sequence
-PREAMBLE_BITS = [0 1 1 1 1 1 0 0 0 0 0 1]; % avoids 4th quadrant 
+PREAMBLE_BITS = [0 1 1 1 0 0 1 1 0 1 0 0 0 0 1 1]; % avoids 4th quadrant 
 
 % for finding BER, what are the known transmitted bits 
-TX_DATA_BITS  = [];   % e.g., repmat([0 0 0 1 1 0 1 1], 1, 50)
+TX_DATA_BITS  = repmat([0 1 1 1 0 0 1 0 0 1 1 1 0 1 0 0 0 1 0 0 1 1 1 1 0 1 0 0 1 0 0 0], 1, 8);   % e.g., repmat([0 0 0 1 1 0 1 1], 1, 50)
 
 %% STEP 12: Read IQ File
 
