@@ -1,28 +1,18 @@
 %% CSE4377 Lab 6 - Demodulation and Reception
 %% =========================================================================
 %  RTL-SDR data capture analysis 
-%% Figures 
-%  1. Raw signal in IQ (step 12)
-%  2. Filtered signal in IQ (step 14)
-%  3. CFO 
+%% Figures
 % =========================================================================
 
 clear; close all; clc;
 
-%% GLOBALS?
-
-IQ_FILE       = 'file_name.iq';   % Path!!!
-f_offset      = 0;                % LO frequency offset in Hz
-%  for step 15, A positive f_offset shifts the spectrum LEFT.
-
-
-% DEPENDS ON HOW WE DO PREAMBLE, we could use xcorr() like WiFi
+IQ_FILE       = '/Users/angelina/Desktop/Wireless/AJJ_Lab06_Test4_QPSKpt2.iq';   % Path!!!
 
 % Preamble bit sequence
-PREAMBLE_BITS = [0 1 1 1 0 0 1 1 0 1 0 0 0 0 1 1]; % avoids 4th quadrant 
+PREAMBLE_BITS = [0 1 1 1 0 0 1 1 0 1 0 0 0 0 1 1]; % avoids 4th quadrant ASCII: "sC"
 
-% for finding BER, what are the known transmitted bits 
-TX_DATA_BITS  = repmat([0 1 1 1 0 0 1 0 0 1 1 1 0 1 0 0 0 1 0 0 1 1 1 1 0 1 0 0 1 0 0 0], 1, 8);   % e.g., repmat([0 0 0 1 1 0 1 1], 1, 50)
+% for finding BER: what data bits are we transmitting, ASCII: "rtOH"
+TX_DATA_BITS  = repmat([0 1 1 1 0 0 1 0 0 1 1 1 0 1 0 0 0 1 0 0 1 1 1 1 0 1 0 0 1 0 0 0], 1, 8);
 
 %% STEP 12: Read IQ File
 
@@ -33,19 +23,21 @@ if file == -1
 end
 rx = zeros(len, 1);
 for i = 1:len
-    re    = fread(file, 1, 'uint8=>double') - 128;
-    im    = fread(file, 1, 'uint8=>double') - 128;
+    re    = (fread(file, 1, "uint8=>double") - 128);
+    im    = (fread(file, 1, "uint8=>double") - 128);
     rx(i) = complex(re, im);
 end
 fclose(file);
 fprintf('  Read %d complex samples.\n', len);
+rx
 
 % FIGURE 1: RAW on the IQ plane
 figure('Name','Step 13 – Raw IQ Constellation','NumberTitle','off');
-scatter(real(rx(1:10:end)), imag(rx(1:10:end)), 1, [0.2 0.45 0.8], '.');
+plot(real(rx), imag(rx), '.');
+% scatter(real(rx), imag(rx), '.');
 axis equal; grid on;
-title('Step 13: Raw IQ Constellation (1-of-10 samples shown)');
-xlabel('In-Phase (I)'); ylabel('Quadrature (Q)');
+title('Step 13: Raw IQ Constellation');
+xlabel('I'); ylabel('Q');
 
 %% STEP 13: Design Decimating FIR Filter
 
@@ -64,40 +56,220 @@ fprintf('  Filter order: %d\n', N);
 % Filter and decimate !!!!!
 fprintf('  Filtering and decimating ...\n');
 rxFilt = conv(rx, h8000); % convolutes two vectors
-rxFilt = rxFilt(1 : Fs/Fpass : end);   % keep 1 of every 256 (8000 samples at 8 ksps)
+rxFilt = rxFilt(1 : Fs/Fpass : end);   % keep 1 of every 256
 fprintf('  Decimated to %d samples at %d ksps.\n', length(rxFilt), Fpass/1e3);
+
+Fs_dec = Fpass;
+N_dec  = length(rxFilt);
+t_dec  = (0:N_dec-1)';
 
 %% STEP 14: Plot Filtered Constellation (LO Offset Visible as Circle)
 
-figure('Name','Step 14 – Filtered Constellation (LO Offset)','NumberTitle','off');
-scatter(real(rxFilt), imag(rxFilt), 8, [0.85 0.2 0.2], '.');
+figure('Name','Step 14 – Filtered Constellation','NumberTitle','off');
+scatter(real(rxFilt), imag(rxFilt), '.');
 axis equal; grid on;
 title('Step 14: Filtered & Decimated IQ Constellation');
-xlabel('In-Phase (I)'); ylabel('Quadrature (Q)');
+xlabel('I'); ylabel('Q');
 
 %% STEP 15: Frequency Offset Correction
+% use fft to find estimate freq off then go through frequencies around it
+% to find the best one 
+fft_rxFilt = abs(fft(rxFilt));
+figure(15);
+plot(fft_rxFilt);
+title("Complex Magnitude of fft Spectrum")
+xlabel("f (Hz)")
+ylabel("|fft(X)|")
 
-idx_vec  = (0:len-1)';
-rxCorr   = rx .* complex(cos(2*pi*idx_vec/Fs*f_offset), sin(2*pi*idx_vec/Fs*f_offset));
-% mult filtered signal by rotating phase to get rid of CFO
+% find frequency index of the peak
+[~, best_f_idx] = max(fft_rxFilt(1:floor(N/2)));
+best_f = ((best_f_idx - 1) * Fs_dec / length(rxFilt))/4;
+fprintf('  Estimated frequency offset: %.2f Hz\n', best_f);
 
-% refilter 
+t_full = (0:len-1)';     % full-rate sample index vector
+
+
+%%======= HERE
+
+
+offset_estimate = 630;
+
+% -------------------------------------------------------------------------
+% 2.  Define sweep range
+% -------------------------------------------------------------------------
+sweep_half  = 10;     % ± Hz around estimate
+sweep_step  = 0.1;    % Hz per frame
+frame_pause = 0.04;   % seconds between frames (filtering is the bottleneck anyway)
+
+f_values = offset_estimate - sweep_half : sweep_step : offset_estimate + sweep_half;
+n_frames = length(f_values);
+
+fprintf('\nSweeping %d frames from %.2f to %.2f Hz.\n', ...
+        n_frames, f_values(1), f_values(end));
+fprintf('Each frame runs full conv() + decimation on the raw rx signal.\n\n');
+
+% -------------------------------------------------------------------------
+% 3.  Animation figure
+% -------------------------------------------------------------------------
+fig_anim = figure('Name','Step 15 – Animated Offset Sweep (Full Filter)', ...
+                  'NumberTitle','off','Position',[150 150 620 620],'Color','w');
+
+ax = axes('Parent', fig_anim, 'Position', [0.12 0.20 0.76 0.70]);
+axis(ax, 'equal');  grid(ax, 'on');
+ylabel(ax, 'Quadrature (Q)');
+
+% Compute first frame to initialise scatter handle
+rxCorr_init  = rx .* complex(cos(2*pi*t_full/Fs*-f_values(1)), ...
+                               sin(2*pi*t_full/Fs*-f_values(1)));
+rxCFilt_init = conv(rxCorr_init, h8000);
+rxCFilt_init = rxCFilt_init(1 : Fs/Fpass : end);
+
+sc = scatter(ax, real(rxCFilt_init), imag(rxCFilt_init), 4, ...
+             [0.1 0.65 0.3], '.', 'MarkerEdgeAlpha', 0.4);
+
+txt_metric = text(ax, 0.01, 0.97, '', 'Units','normalized', ...
+                  'FontSize', 9, 'Color',[0.5 0.5 0.5], ...
+                  'VerticalAlignment','top');
+
+best_f     = f_values(1);
+best_score = Inf;
+
+% -------------------------------------------------------------------------
+% 4.  Sweep loop — full CFO + conv + decimate every frame
+% -------------------------------------------------------------------------
+for k = 1:n_frames
+
+    if ~ishandle(fig_anim),  break;  end
+
+    f_try = f_values(k);
+
+    % --- CFO correction on full raw signal ---
+    rxCorr = rx .* complex(cos(2*pi*t_full/Fs*-f_try), ...
+                            sin(2*pi*t_full/Fs*-f_try));
+
+    % --- Full FIR filter + decimate ---
+    rxCFilt_frame = conv(rxCorr, h8000);
+    rxCFilt_frame = rxCFilt_frame(1 : Fs/Fpass : end);
+
+    % --- Cluster tightness metric (QPSK 4-fold symmetry) ---
+    ang_var = var(mod(angle(rxCFilt_frame) * 4, 2*pi));
+    if ang_var < best_score
+        best_score = ang_var;
+        best_f     = f_try;
+    end
+
+    % --- Update plot ---
+    sc.XData = real(rxCFilt_frame);
+    sc.YData = imag(rxCFilt_frame);
+
+    r_max = max(abs(rxCFilt_frame)) * 1.15;
+    axis(ax, [-r_max r_max -r_max r_max]);
+
+    title(ax, sprintf('Step 15: f_{offset} = %.2f Hz          (best so far: %.2f Hz)', ...
+                      f_try, best_f), 'FontSize', 11);
+    txt_metric.String = sprintf('Cluster tightness score: %.4f  (lower = better)', ang_var);
+
+    pct = k / n_frames * 100;
+    xlabel(ax, sprintf('In-Phase (I)          [Sweep progress: %d%%  —  frame %d / %d]', ...
+                       round(pct), k, n_frames));
+
+    drawnow limitrate
+    pause(frame_pause);
+end
+
+% -------------------------------------------------------------------------
+% 5.  After sweep: freeze on best offset, add slider
+% -------------------------------------------------------------------------
+if ishandle(fig_anim)
+
+    % Recompute best frame using full pipeline
+    rxCorr_best  = rx .* complex(cos(2*pi*t_full/Fs*-best_f), ...
+                                  sin(2*pi*t_full/Fs*-best_f));
+    rxCFilt_best = conv(rxCorr_best, h8000);
+    rxCFilt_best = rxCFilt_best(1 : Fs/Fpass : end);
+
+    sc.XData = real(rxCFilt_best);
+    sc.YData = imag(rxCFilt_best);
+    r_max = max(abs(rxCFilt_best)) * 1.15;
+    axis(ax, [-r_max r_max -r_max r_max]);
+    title(ax, sprintf('Step 15: Best f_{offset} = %.2f Hz  (auto-selected)', best_f), ...
+          'FontSize', 12, 'Color',[0.1 0.55 0.1]);
+    xlabel(ax, 'In-Phase (I)');
+    txt_metric.String = '';
+
+    fprintf('Auto-selected best f_offset = %.3f Hz\n', best_f);
+
+    % --- Slider ---
+    uicontrol(fig_anim, 'Style','text', ...
+              'Units','normalized', 'Position',[0.08 0.06 0.50 0.05], ...
+              'String','Fine-tune offset (Hz):', ...
+              'HorizontalAlignment','left', 'BackgroundColor','w', 'FontSize',9);
+
+    slider_val_txt = uicontrol(fig_anim, 'Style','text', ...
+              'Units','normalized', 'Position',[0.60 0.06 0.30 0.05], ...
+              'String', sprintf('%.2f Hz', best_f), ...
+              'HorizontalAlignment','center', 'BackgroundColor','w', ...
+              'FontSize', 10, 'FontWeight','bold');
+
+    uicontrol(fig_anim, 'Style','slider', ...
+              'Units','normalized', 'Position',[0.08 0.01 0.84 0.045], ...
+              'Min', offset_estimate - sweep_half, ...
+              'Max', offset_estimate + sweep_half, ...
+              'Value', best_f, ...
+              'SliderStep', [sweep_step/(2*sweep_half), 5*sweep_step/(2*sweep_half)], ...
+              'Callback', @(src,~) update_slider_full(src, rx, t_full, Fs, h8000, ...
+                                                      Fpass, ax, sc, slider_val_txt));
+
+    uicontrol(fig_anim, 'Style','pushbutton', ...
+              'Units','normalized', 'Position',[0.60 0.12 0.30 0.05], ...
+              'String','Copy offset to workspace', 'FontSize', 9, ...
+              'Callback', @(~,~) assignin('base','f_offset_chosen', ...
+                                           str2double(get(slider_val_txt,'String'))));
+end
+
+% -------------------------------------------------------------------------
+% 6.  Apply chosen offset — full pipeline — to produce rxCFilt
+% -------------------------------------------------------------------------
+f_offset = best_f;
+rxCorr   = rx .* complex(cos(2*pi*t_full/Fs*-f_offset), ...
+                          sin(2*pi*t_full/Fs*-f_offset));
 rxCFilt  = conv(rxCorr, h8000);
 rxCFilt  = rxCFilt(1 : Fs/Fpass : end);
 
-figure('Name','Step 15 – Frequency-Corrected Constellation','NumberTitle','off');
-scatter(real(rxCFilt), imag(rxCFilt), 8, [0.1 0.65 0.3], '.');
-axis equal; grid on;
-title('Step 15: Frequency-Corrected Constellation');
-xlabel('In-Phase (I)'); ylabel('Quadrature (Q)');
+fprintf('f_offset = %.3f Hz applied. rxCFilt ready for Steps 18-21.\n', f_offset);
+
+% =========================================================================
+function update_slider_full(src, rx, t_full, Fs, h8000, Fpass, ax, sc, lbl)
+% Slider callback: full CFO correction + conv() + decimate on each move.
+    f_val        = get(src, 'Value');
+    rxCorr       = rx .* complex(cos(2*pi*t_full/Fs*-f_val), ...
+                                  sin(2*pi*t_full/Fs*-f_val));
+    rxCFilt_tmp  = conv(rxCorr, h8000);
+    rxCFilt_tmp  = rxCFilt_tmp(1 : Fs/Fpass : end);
+    sc.XData     = real(rxCFilt_tmp);
+    sc.YData     = imag(rxCFilt_tmp);
+    r_max        = max(abs(rxCFilt_tmp)) * 1.15;
+    axis(ax, [-r_max r_max -r_max r_max]);
+    title(ax, sprintf('Step 15: f_{offset} = %.3f Hz', f_val), 'FontSize', 11);
+    set(lbl, 'String', sprintf('%.2f Hz', f_val));
+    drawnow;
+end
+
+%%======= HERE
+
+f_offset = -630;
+rxCorr   = rx .* complex(cos(2*pi*t_full/Fs*f_offset), sin(2*pi*t_full/Fs*f_offset));
+rxCFilt  = conv(rxCorr, h8000);
+rxCFilt  = rxCFilt(1 : Fs/Fpass : end);
 
 %% STEP 18: QPSK Constellation Check (before preamble alignment)
-figure('Name','Step 18 – QPSK Constellation','NumberTitle','off');
-scatter(real(rxCFilt), imag(rxCFilt), 8, [0.55 0.1 0.8], '.');
+figure('Name','Step 15 – Frequency-Corrected Constellation','NumberTitle','off');
+scatter(real(rxCFilt), imag(rxCFilt), '.');
 axis equal; grid on;
-title('Step 18: QPSK Constellation After Frequency Correction');
-xlabel('In-Phase (I)'); ylabel('Quadrature (Q)');
+title('Step 15: Frequency-Corrected Constellation');
+xlabel('I'); ylabel('Q');
 
+%{
 %% STEP 19-20: Preamble Definition & Correlation for Timing Recovery
 n_pre_bits = length(PREAMBLE_BITS);
 n_pre_syms = n_pre_bits / 2;
@@ -196,3 +368,4 @@ title({'Step 21: Rotation-Corrected QPSK Constellation', ber_str});
 xlabel('In-Phase (I)'); ylabel('Quadrature (Q)');
 legend('Received Symbols', 'Decision Boundaries', 'Ideal QPSK Points', ...
        'Location','best');
+%}
