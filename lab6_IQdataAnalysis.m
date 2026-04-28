@@ -1,7 +1,6 @@
 %% CSE4377 Lab 6 - Demodulation and Reception
-%% =========================================================================
+% =========================================================================
 %  RTL-SDR data capture analysis 
-%% Figures
 % =========================================================================
 
 clear; close all; clc;
@@ -15,8 +14,8 @@ PREAMBLE_BITS = [0 1 1 1 0 0 1 1 0 1 0 0 0 0 1 1]; % avoids 4th quadrant ASCII: 
 TX_DATA_BITS  = repmat([0 1 1 1 0 0 1 0 0 1 1 1 0 1 0 0 0 1 0 0 1 1 1 1 0 1 0 0 1 0 0 0], 1, 8);
 
 %% STEP 12: Read IQ File
-
-len  = 2048000;
+fOffset = -631; % frequency offset found with fft and animation code commented out
+len  = 2048000/10; % only way we could use data
 file = fopen(IQ_FILE, 'rb');
 if file == -1
     error('Cannot open file "%s". Check IQ_FILE path.', IQ_FILE);
@@ -26,17 +25,17 @@ for i = 1:len
     re    = (fread(file, 1, "uint8=>double") - 128);
     im    = (fread(file, 1, "uint8=>double") - 128);
     rx(i) = complex(re, im);
+    rx(i) = rx(i) * complex(cos(2*pi*i/2048000*fOffset), sin(2*pi*i/2048000*fOffset)); %adjusts for freq off
 end
 fclose(file);
 fprintf('  Read %d complex samples.\n', len);
-rx
 
 % FIGURE 1: RAW on the IQ plane
-figure('Name','Step 13 – Raw IQ Constellation','NumberTitle','off');
-plot(real(rx), imag(rx), '.');
-% scatter(real(rx), imag(rx), '.');
+figure('Name','Step 13 – Raw IQ Constellation with Frequency Offset Correction','NumberTitle','off');
+%plot(real(rx), imag(rx), '.');
+scatter(real(rx), imag(rx), '.');
 axis equal; grid on;
-title('Step 13: Raw IQ Constellation');
+title('Raw IQ Constellation with Frequency Offset Correction');
 xlabel('I'); ylabel('Q');
 
 %% STEP 13: Design Decimating FIR Filter
@@ -57,6 +56,7 @@ fprintf('  Filter order: %d\n', N);
 fprintf('  Filtering and decimating ...\n');
 rxFilt = conv(rx, h8000); % convolutes two vectors
 rxFilt = rxFilt(1 : Fs/Fpass : end);   % keep 1 of every 256
+% plot each and see which gives tighter clusters
 fprintf('  Decimated to %d samples at %d ksps.\n', length(rxFilt), Fpass/1e3);
 
 Fs_dec = Fpass;
@@ -75,7 +75,7 @@ xlabel('I'); ylabel('Q');
 % use fft to find estimate freq off then go through frequencies around it
 % to find the best one 
 fft_rxFilt = abs(fft(rxFilt));
-figure(15);
+figure('Name','Step 15 – FFT','NumberTitle','off');
 plot(fft_rxFilt);
 title("Complex Magnitude of fft Spectrum")
 xlabel("f (Hz)")
@@ -86,20 +86,329 @@ ylabel("|fft(X)|")
 best_f = ((best_f_idx - 1) * Fs_dec / length(rxFilt))/4;
 fprintf('  Estimated frequency offset: %.2f Hz\n', best_f);
 
-t_full = (0:len-1)';     % full-rate sample index vector
+%% STEP 19-20: DONE IN TWO DIFFERENT METHODS 
+% 1. Preamble Definition & Correlation peak
+% 2. Phase Rotation and Quadrant Decoding
+%% ---------------------------------------------------------------------
+%% METHOD 1: Define Expected Preamble and Find Through Correlation
+%% ---------------------------------------------------------------------
+n_pre_bits = length(PREAMBLE_BITS);
+n_pre_syms = n_pre_bits / 2;
+preamble_syms = zeros(n_pre_syms, 1);
+
+% basically makes a wave copy of what the preamble should look like
+% Bit pairs: 00->+1+j  01->-1+j  11->-1-j  10->+1-j
+for k = 1:n_pre_syms
+    b0 = PREAMBLE_BITS(2*k-1);
+    b1 = PREAMBLE_BITS(2*k);
+    if     b0==0 && b1==0;  preamble_syms(k) =  1+1j;   % +I +Q
+    elseif b0==1 && b1==0;  preamble_syms(k) = -1+1j;   % -I +Q
+    elseif b0==1 && b1==1;  preamble_syms(k) = -1-1j;   % -I -Q
+    else;                   preamble_syms(k) =  1-1j;   % +I -Q  (b0=0,b1=1)
+    end
+end
+preamble_syms = preamble_syms / norm(preamble_syms);   % normalize
+
+% correlate received signal with preamble
+corr = abs(conv(rxFilt, flipud(conj(preamble_syms)), 'same'));
+N_rx    = length(rxFilt);
+N_pre   = length(preamble_syms);    
+
+[~, peak_idx] = max(corr);            % 1-based index into rxFilt
+%peak_idx = 337;
+fprintf('  Preamble peak at sample index %d \n', ...
+        peak_idx);
+
+figure('Name','Step 20 – Preamble Correlation','NumberTitle','off');
+plot((0:length(corr)-1), corr, 'Color', [0.2 0.5 0.8], 'LineWidth', 0.8);
+hold on;
+plot(peak_idx-1, corr(peak_idx), 'r*', 'MarkerSize', 12, 'LineWidth', 2);
+hold off;
+grid on;
+title('Step 20: Preamble Correlation Output');
+xlabel('Sample Index (at 8 ksps)'); ylabel('|Correlation|');
+legend('Correlation Magnitude', sprintf('Peak at index %d', peak_idx-1), ...
+       'Location','best');
+
+%% STEP 21: Phase Rotation Correction, Demodulation, and BER
+data_start = peak_idx + N_pre;   % data starts at preamble start + preamble length
+
+% find phase rotation based on real constelation vs expected 
+rx_pre_window = rxFilt(peak_idx : peak_idx + N_pre - 1);
+phase_est     = angle(sum(rx_pre_window .* conj(preamble_syms)));
+phase_est = 6.8;
+fprintf('  Estimated constellation rotation: %.2f deg\n', rad2deg(phase_est));
+
+%Preamble Comparison (IQ Domain)
+figure('Name','Preamble Comparison: Received vs. Ideal','NumberTitle','off');
+
+% Plot the received preamble window (after phase correction)
+rx_pre_corrected = rx_pre_window * exp(-1j * phase_est);
+s1 = scatter(real(rx_pre_corrected), imag(rx_pre_corrected), 60, 'filled', 'MarkerFaceAlpha', 0.6);
+hold on;
+
+% Plot the ideal preamble symbols (normalized/scaled to match)
+ideal_scaled = preamble_syms * mean(abs(rx_pre_window));
+s2 = scatter(real(ideal_scaled), imag(ideal_scaled), 100, 'r', 'LineWidth', 2);
+
+% Formatting
+grid on; axis equal;
+xline(0, 'k--'); yline(0, 'k--');
+xlabel('In-Phase (I)'); ylabel('Quadrature (Q)');
+title('Preamble Alignment: Ideal vs. Received (Phase Corrected)');
+legend([s1, s2], {'Received Samples (rx\_pre\_window)', 'Ideal Preamble (preamble\_syms)'}, ...
+       'Location', 'northeastoutside');
+
+% Display the first few symbols for manual verification
+fprintf('\n--- Preamble Symbol Check ---\n');
+for i = 1:min(4, length(preamble_syms))
+    fprintf('Symbol %d: Expected (%.2f + %.2fj) | Received (%.2f + %.2fj)\n', ...
+        i, real(ideal_scaled(i)), imag(ideal_scaled(i)), ...
+        real(rx_pre_corrected(i)), imag(rx_pre_corrected(i)));
+end
+
+%% ---------------------------------------------------------------------
+%% METHOD 2: Rotate, Demodulate, Find Preamble
+%% ---------------------------------------------------------------------
+% plot the RAW rx data rotated by phase_est (make sure matches expected)
+rx_raw_rotated = rx * exp(-1j * phase_est);
+
+figure('Name','Step 21a – Raw RX Rotated','NumberTitle','off');
+scatter(real(rx_raw_rotated), imag(rx_raw_rotated), '.');
+hold on;
+xline(0, 'k--', 'LineWidth', 1.2);
+yline(0, 'k--', 'LineWidth', 1.2);
+hold off;
+axis equal; grid on;
+title(sprintf('Step 21a: Raw RX Rotated by phase\\_est = %.3f rad (%.1f°)', ...
+              phase_est, rad2deg(phase_est)));
+xlabel('In-Phase (I)'); ylabel('Quadrature (Q)');
+
+% plot the FILTERED data rotated with decision boundaries
+rxFilt_rotated = rxFilt * exp(-1j * phase_est);
+
+figure('Name','Step 21b – Filtered RX Rotated with Decision Boundaries','NumberTitle','off');
+scatter(real(rxFilt_rotated), imag(rxFilt_rotated), '.');
+hold on;
+xline(0, 'k--', 'LineWidth', 1.8);
+yline(0, 'k--', 'LineWidth', 1.8);
+ax_lim = max(abs([real(rxFilt_rotated); imag(rxFilt_rotated)])) * 0.75;
+hold off;
+axis equal; grid on;
+title(sprintf('Step 21b: Filtered RX Rotated (%.1f°) with QPSK Decision Boundaries', ...
+              rad2deg(phase_est)));
+xlabel('In-Phase (I)'); ylabel('Quadrature (Q)');
+
+% samples into a flat bit stream
+n_syms_total = length(rxFilt_rotated);
+all_bits = zeros(n_syms_total * 2, 1);
+
+for k = 1:n_syms_total
+    s = rxFilt_rotated(k);
+    I = real(s);  Q = imag(s);
+    if     I >= 0 && Q >= 0;  bits = [0; 0];   % +I+Q → b0=0, b1=0
+    elseif I <  0 && Q >= 0;  bits = [1; 0];   % -I+Q → b0=1, b1=0
+    elseif I <  0 && Q <  0;  bits = [1; 1];   % -I-Q → b0=1, b1=1
+    else;                      bits = [0; 1];   % +I-Q → b0=0, b1=1
+    end
+end
+
+fprintf('\n--- Full bit stream decoded: %d bits total ---\n', length(all_bits));
+
+%%  Search for the preamble pattern in the full bit stream
+%     Slide the preamble window across all_bits and count matches at each position.
+
+pre_row   = PREAMBLE_BITS(:);          % column vector of preamble bits
+n_pre_b   = length(pre_row);
+n_bits    = length(all_bits);
+match_scores = zeros(n_bits - n_pre_b, 1);
+
+for pos = 1 : (n_bits - n_pre_b)
+    window = all_bits(pos : pos + n_pre_b - 1);
+    match_scores(pos) = sum(window == pre_row);   % count matching bits
+end
+
+% A perfect match scores n_pre_b. Accept anything within 1 bit error.
+MATCH_THRESHOLD = n_pre_b - 1;   % allow 1 bit error in preamble detection
+preamble_positions = find(match_scores >= MATCH_THRESHOLD);
+
+%% 5. Announce preamble detection results
+if isempty(preamble_positions)
+    fprintf('\n*** PREAMBLE NOT FOUND in bit stream (threshold = %d/%d bits) ***\n', ...
+            MATCH_THRESHOLD, n_pre_b);
+    fprintf('    Try adjusting phase_est or check preamble bit mapping.\n');
+else
+    fprintf('\n*** PREAMBLE FOUND ***\n');
+    fprintf('    Detected at %d bit position(s): ', length(preamble_positions));
+    fprintf('%d ', preamble_positions(1:min(10,end)));
+    if length(preamble_positions) > 10; fprintf('...'); end
+    fprintf('\n');
+    fprintf('    First preamble at bit index %d (symbol %d)\n', ...
+            preamble_positions(1), ceil(preamble_positions(1)/2));
+
+    % Plot match score so all preamble locations are visible
+    figure('Name','Step 21c – Preamble Search in Bit Stream','NumberTitle','off');
+    plot(match_scores, 'Color',[0.2 0.5 0.8], 'LineWidth', 0.7);
+    hold on;
+    yline(MATCH_THRESHOLD, 'k--', sprintf('Threshold (%d/%d)', MATCH_THRESHOLD, n_pre_b), ...
+          'LineWidth', 1.2, 'LabelHorizontalAlignment','left');
+    plot(preamble_positions, match_scores(preamble_positions), ...
+         'r*', 'MarkerSize', 8, 'LineWidth', 1.5);
+    hold off; grid on;
+    title(sprintf('Step 21c: Preamble Search — %d match(es) found', ...
+                  length(preamble_positions)));
+    xlabel('Bit Index'); ylabel(sprintf('Matching bits out of %d', n_pre_b));
+    legend('Match score','Threshold','Preamble hit','Location','best');
+end
+
+%% BER on the 256 bits immediately after the first detected preamble
+if ~isempty(preamble_positions)
+
+    first_pre_bit  = preamble_positions(1);
+    data_bit_start = first_pre_bit + n_pre_b;      % first data bit index
+    data_bit_end   = data_bit_start + 256 - 1;     % 256 bits = 128 QPSK symbols
+
+    if data_bit_end > n_bits
+        fprintf('\n  Not enough bits after preamble for 256-bit BER window (only %d available).\n', ...
+                n_bits - data_bit_start + 1);
+        data_bit_end = n_bits;
+    end
+
+    rx_data_bits = all_bits(data_bit_start : data_bit_end);
+    n_data_bits  = length(rx_data_bits);
+
+    fprintf('\n--- BER on %d bits after first preamble (bit %d to %d) ---\n', ...
+            n_data_bits, data_bit_start, data_bit_end);
+    fprintf('  RX bits: ');
+    fprintf('%d', rx_data_bits(1:min(64,end)));
+    if n_data_bits > 64; fprintf(' ...'); end
+    fprintf('\n');
+
+    if ~isempty(TX_DATA_BITS)
+        tx_col    = TX_DATA_BITS(:);
+        n_compare = min(length(tx_col), n_data_bits);
+        tx_window = tx_col(1:n_compare);
+        rx_window = rx_data_bits(1:n_compare);
+
+        n_err = sum(rx_window ~= tx_window);
+        BER   = n_err / n_compare;
+
+        fprintf('  TX bits: ');
+        fprintf('%d', tx_window(1:min(64,end)));
+        if n_compare > 64; fprintf(' ...'); end
+        fprintf('\n');
+        fprintf('\n  BER = %d errors / %d bits = %.6f\n', n_err, n_compare, BER);
+
+        ber_str = sprintf('BER = %.4f  (%d errors / %d bits)', BER, n_err, n_compare);
+
+        % Bit error location plot
+        figure('Name','Step 21d – Bit Error Locations','NumberTitle','off');
+        bit_errors = rx_window ~= tx_window;
+        stem(find(bit_errors), ones(sum(bit_errors),1), 'r', ...
+             'MarkerSize', 4, 'LineWidth', 0.8);
+        grid on;
+        title({sprintf('Step 21d: Bit Error Locations  —  %s', ber_str), ...
+               sprintf('First preamble at bit %d, data window: bits %d–%d', ...
+                       first_pre_bit, data_bit_start, data_bit_end)});
+        xlabel('Bit Index (within 256-bit window)'); ylabel('Error (1 = wrong)');
+        ylim([0 1.4]);
+
+    else
+        fprintf('  TX_DATA_BITS not set — skipping BER calculation.\n');
+        ber_str = 'BER: TX_DATA_BITS not set';
+    end
+
+    % Final constellation showing only the 256 data bits window
+    data_sym_start = data_bit_start / 2;
+    data_sym_end   = ceil(data_bit_end / 2);
+    data_syms_plot = rxFilt_rotated(data_sym_start : min(data_sym_end, length(rxFilt_rotated)));
+
+    figure('Name','Step 21e – Data Block Constellation (256 bits)','NumberTitle','off');
+    scatter(real(data_syms_plot), imag(data_syms_plot), 20, [0.15 0.55 0.9], 'filled', ...
+            'MarkerFaceAlpha', 0.6);
+    hold on;
+    xline(0, 'k--', 'LineWidth', 1.5);
+    yline(0, 'k--', 'LineWidth', 1.5);
+    amp_d  = mean(abs(data_syms_plot));
+    ideal_d = amp_d * [1+1j, -1+1j, -1-1j, 1-1j];
+    plot(real(ideal_d), imag(ideal_d), 'r+', 'MarkerSize', 18, 'LineWidth', 2.5);
+    text( amp_d*0.6,  amp_d*0.6, '00','FontSize',11,'FontWeight','bold','Color',[0.1 0.5 0.1]);
+    text(-amp_d*0.6,  amp_d*0.6, '01','FontSize',11,'FontWeight','bold','Color',[0.1 0.5 0.1]);
+    text(-amp_d*0.6, -amp_d*0.6, '11','FontSize',11,'FontWeight','bold','Color',[0.1 0.5 0.1]);
+    text( amp_d*0.6, -amp_d*0.6, '10','FontSize',11,'FontWeight','bold','Color',[0.1 0.5 0.1]);
+    hold off;
+    axis equal; grid on;
+    title({'Step 21e: 256-bit Data Block Constellation', ber_str});
+    xlabel('In-Phase (I)'); ylabel('Quadrature (Q)');
+    legend('Data Symbols','Decision Boundaries','Ideal QPSK','Location','best');
+end
 
 
-%%======= HERE
 
 
-offset_estimate = 630;
+
+
+% get data
+n_data = N_rx - data_start;   % remaining symbols after preamble
+rx_data_raw  = rxFilt(data_start : data_start + n_data - 1);
+rx_data_corr = rx_data_raw * exp(-1j * phase_est);
+
+% QPSK decisions 
+rx_bits = zeros(n_data * 2, 1);
+for k = 1:n_data
+    s = rx_data_corr(k);
+    I = real(s);  Q = imag(s);
+    if     I >= 0 && Q >= 0;  rx_bits(2*k-1:2*k) = [0; 0];
+    elseif I <  0 && Q >= 0;  rx_bits(2*k-1:2*k) = [0; 1];
+    elseif I <  0 && Q <  0;  rx_bits(2*k-1:2*k) = [1; 1];
+    else;                      rx_bits(2*k-1:2*k) = [1; 0];
+    end
+end
+
+fprintf('64 QPSK bits:\n    ');
+fprintf('%d', rx_bits(1:min(64,end)));
+fprintf('\n');
+
+% BER Calculation
+if ~isempty(TX_DATA_BITS)
+    tx = TX_DATA_BITS(:);
+    n_compare = min(length(tx), length(rx_bits));
+    n_err = sum(rx_bits(1:n_compare) ~= tx(1:n_compare));
+    BER   = n_err / n_compare;
+    fprintf('  BER: %d errors over %d bits = %.6f\n', n_err, n_compare, BER);
+    ber_str = sprintf('BER = %.4f  (%d / %d bits)', BER, n_err, n_compare);
+else
+    ber_str = 'BER: TX_DATA_BITS not set';
+    fprintf('  %s\n', ber_str);
+end
+
+figure('Name','Step 21 – Demodulated QPSK Constellation','NumberTitle','off');
+scatter(real(rx_data_corr), imag(rx_data_corr), 6, [0.15 0.55 0.9], '.');
+hold on;
+% Decision boundary lines
+xline(0, 'k--', 'LineWidth', 1.5);
+yline(0, 'k--', 'LineWidth', 1.5);
+% Ideal QPSK points scaled to mean received amplitude
+amp = mean(abs(rx_data_corr));
+ideal = amp * [1+1j, -1+1j, -1-1j, 1-1j];
+plot(real(ideal), imag(ideal), 'r+', 'MarkerSize', 18, 'LineWidth', 2.5);
+hold off;
+axis equal; grid on;
+title({'Step 21: Rotation-Corrected QPSK Constellation', ber_str});
+xlabel('In-Phase (I)'); ylabel('Quadrature (Q)');
+legend('Received Symbols', 'Decision Boundaries', 'Ideal QPSK Points', ...
+       'Location','best');
+
+
+%{
+offset_estimate = 630; %from fft
 
 % -------------------------------------------------------------------------
 % 2.  Define sweep range
 % -------------------------------------------------------------------------
 sweep_half  = 10;     % ± Hz around estimate
 sweep_step  = 0.1;    % Hz per frame
-frame_pause = 0.04;   % seconds between frames (filtering is the bottleneck anyway)
+frame_pause = 0.12;   % seconds between frames (filtering is the bottleneck anyway)
 
 f_values = offset_estimate - sweep_half : sweep_step : offset_estimate + sweep_half;
 n_frames = length(f_values);
@@ -124,8 +433,7 @@ rxCorr_init  = rx .* complex(cos(2*pi*t_full/Fs*-f_values(1)), ...
 rxCFilt_init = conv(rxCorr_init, h8000);
 rxCFilt_init = rxCFilt_init(1 : Fs/Fpass : end);
 
-sc = scatter(ax, real(rxCFilt_init), imag(rxCFilt_init), 4, ...
-             [0.1 0.65 0.3], '.', 'MarkerEdgeAlpha', 0.4);
+sc = scatter(ax, real(rxCFilt_init), imag(rxCFilt_init), '.');
 
 txt_metric = text(ax, 0.01, 0.97, '', 'Units','normalized', ...
                   'FontSize', 9, 'Color',[0.5 0.5 0.5], ...
@@ -255,117 +563,4 @@ function update_slider_full(src, rx, t_full, Fs, h8000, Fpass, ax, sc, lbl)
     drawnow;
 end
 
-%%======= HERE
-
-f_offset = -630;
-rxCorr   = rx .* complex(cos(2*pi*t_full/Fs*f_offset), sin(2*pi*t_full/Fs*f_offset));
-rxCFilt  = conv(rxCorr, h8000);
-rxCFilt  = rxCFilt(1 : Fs/Fpass : end);
-
-%% STEP 18: QPSK Constellation Check (before preamble alignment)
-figure('Name','Step 15 – Frequency-Corrected Constellation','NumberTitle','off');
-scatter(real(rxCFilt), imag(rxCFilt), '.');
-axis equal; grid on;
-title('Step 15: Frequency-Corrected Constellation');
-xlabel('I'); ylabel('Q');
-
-%{
-%% STEP 19-20: Preamble Definition & Correlation for Timing Recovery
-n_pre_bits = length(PREAMBLE_BITS);
-n_pre_syms = n_pre_bits / 2;
-preamble_syms = zeros(n_pre_syms, 1);
-
-% basically makes a wave copy of what the preamble should look like
-% Bit pairs: 00->+1+j  01->-1+j  11->-1-j  10->+1-j
-for k = 1:n_pre_syms
-    b0 = PREAMBLE_BITS(2*k-1);
-    b1 = PREAMBLE_BITS(2*k);
-    if     b0==0 && b1==0;  preamble_syms(k) =  1+1j;
-    elseif b0==0 && b1==1;  preamble_syms(k) = -1+1j;
-    elseif b0==1 && b1==1;  preamble_syms(k) = -1-1j;
-    else;                   preamble_syms(k) =  1-1j;
-    end
-end
-preamble_syms = preamble_syms / norm(preamble_syms);   % normalize
-
-% XCORR and look for peak (peak is where it starts)
-corr_full = xcorr(rxCFilt, preamble_syms);
-% xcorr output length = 2*N-1; zero-lag at index N
-N_rx    = length(rxCFilt);
-N_pre   = length(preamble_syms);
-corr_pos = abs(corr_full(N_pre : end));   % positive-lag portion
-
-[~, peak_idx] = max(corr_pos);            % 1-based index into rxCFilt
-fprintf('  Preamble peak at sample index %d  (of %d total at 8 ksps)\n', ...
-        peak_idx, N_rx);
-
-figure('Name','Step 20 – Preamble Correlation','NumberTitle','off');
-plot((0:length(corr_pos)-1), corr_pos, 'Color', [0.2 0.5 0.8], 'LineWidth', 0.8);
-hold on;
-plot(peak_idx-1, corr_pos(peak_idx), 'r*', 'MarkerSize', 12, 'LineWidth', 2);
-hold off;
-grid on;
-title('Step 20: Preamble Correlation Output');
-xlabel('Sample Index (at 8 ksps)'); ylabel('|Correlation|');
-legend('Correlation Magnitude', sprintf('Peak at index %d', peak_idx-1), ...
-       'Location','best');
-
-%% STEP 21: Phase Rotation Correction, Demodulation, and BER
-data_start = peak_idx + N_pre;   % data starts at preamble start + preamble length
-
-% find phase rotation 
-rx_pre_window = rxCFilt(peak_idx : peak_idx + N_pre - 1);
-phase_est     = angle(sum(rx_pre_window .* conj(preamble_syms)));
-fprintf('  Estimated constellation rotation: %.2f deg\n', rad2deg(phase_est));
-
-% get data
-n_data = N_rx - data_start;   % remaining symbols after preamble
-rx_data_raw  = rxCFilt(data_start : data_start + n_data - 1);
-rx_data_corr = rx_data_raw * exp(-1j * phase_est);
-
-% QPSK decisions 
-rx_bits = zeros(n_data * 2, 1);
-for k = 1:n_data
-    s = rx_data_corr(k);
-    I = real(s);  Q = imag(s);
-    if     I >= 0 && Q >= 0;  rx_bits(2*k-1:2*k) = [0; 0];
-    elseif I <  0 && Q >= 0;  rx_bits(2*k-1:2*k) = [0; 1];
-    elseif I <  0 && Q <  0;  rx_bits(2*k-1:2*k) = [1; 1];
-    else;                      rx_bits(2*k-1:2*k) = [1; 0];
-    end
-end
-
-fprintf('64 QPSK bits:\n    ');
-fprintf('%d', rx_bits(1:min(64,end)));
-fprintf('\n');
-
-% --- BER (if TX bits are provided) ---
-if ~isempty(TX_DATA_BITS)
-    tx = TX_DATA_BITS(:);
-    n_compare = min(length(tx), length(rx_bits));
-    n_err = sum(rx_bits(1:n_compare) ~= tx(1:n_compare));
-    BER   = n_err / n_compare;
-    fprintf('  BER: %d errors over %d bits = %.6f\n', n_err, n_compare, BER);
-    ber_str = sprintf('BER = %.4f  (%d / %d bits)', BER, n_err, n_compare);
-else
-    ber_str = 'BER: TX_DATA_BITS not set';
-    fprintf('  %s\n', ber_str);
-end
-
-figure('Name','Step 21 – Demodulated QPSK Constellation','NumberTitle','off');
-scatter(real(rx_data_corr), imag(rx_data_corr), 6, [0.15 0.55 0.9], '.');
-hold on;
-% Decision boundary lines
-xline(0, 'k--', 'LineWidth', 1.5);
-yline(0, 'k--', 'LineWidth', 1.5);
-% Ideal QPSK points scaled to mean received amplitude
-amp = mean(abs(rx_data_corr));
-ideal = amp * [1+1j, -1+1j, -1-1j, 1-1j];
-plot(real(ideal), imag(ideal), 'r+', 'MarkerSize', 18, 'LineWidth', 2.5);
-hold off;
-axis equal; grid on;
-title({'Step 21: Rotation-Corrected QPSK Constellation', ber_str});
-xlabel('In-Phase (I)'); ylabel('Quadrature (Q)');
-legend('Received Symbols', 'Decision Boundaries', 'Ideal QPSK Points', ...
-       'Location','best');
 %}
